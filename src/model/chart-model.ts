@@ -21,7 +21,12 @@ import { Point } from './point';
 import { PriceScale, PriceScaleOptions } from './price-scale';
 import { Series } from './series';
 import { SeriesOptionsMap, SeriesType } from './series-options';
-import { TickMark, TimePoint, TimePointIndex, TimePointsRange } from './time-data';
+import {
+	TickMark,
+	TimePoint,
+	TimePointIndex,
+	TimePointsRange,
+} from './time-data';
 import { TimeScale, TimeScaleOptions } from './time-scale';
 import { Watermark, WatermarkOptions } from './watermark';
 
@@ -79,12 +84,13 @@ export interface ChartOptions {
 	handleScale: HandleScaleOptions | boolean;
 }
 
-export type ChartOptionsInternal =
-	Omit<ChartOptions, 'handleScroll' | 'handleScale'>
-	& {
-		handleScroll: HandleScrollOptions;
-		handleScale: HandleScaleOptions;
-	};
+export type ChartOptionsInternal = Omit<
+	ChartOptions,
+	'handleScroll' | 'handleScale'
+> & {
+	handleScroll: HandleScrollOptions;
+	handleScale: HandleScaleOptions;
+};
 
 export class ChartModel implements IDestroyable {
 	private readonly _options: ChartOptionsInternal;
@@ -105,15 +111,25 @@ export class ChartModel implements IDestroyable {
 	private _initialTimeScrollPos: number | null = null;
 	private _hoveredSource: HoveredSource | null = null;
 	private readonly _mainPriceScaleOptionsChanged: Delegate = new Delegate();
-	private _crosshairMoved: Delegate<TimePointIndex | null, Point | null> = new Delegate();
+	private _crosshairMoved: Delegate<
+		TimePointIndex | null,
+		Point | null
+	> = new Delegate();
 
-	public constructor(invalidateHandler: InvalidateHandler, options: ChartOptionsInternal) {
+	public constructor(
+		invalidateHandler: InvalidateHandler,
+		options: ChartOptionsInternal,
+	) {
 		this._invalidateHandler = invalidateHandler;
 		this._options = options;
 
 		this._rendererOptionsProvider = new PriceAxisRendererOptionsProvider(this);
 
-		this._timeScale = new TimeScale(this, options.timeScale, this._options.localization);
+		this._timeScale = new TimeScale(
+			this,
+			options.timeScale,
+			this._options.localization,
+		);
 		this._grid = new Grid();
 		this._crosshair = new Crosshair(this, options.crosshair);
 		this._magnet = new Magnet(options.crosshair);
@@ -232,7 +248,7 @@ export class ChartModel implements IDestroyable {
 			this._panes.push(pane);
 		}
 
-		const actualIndex = (index === undefined) ? this._panes.length - 1 : index;
+		const actualIndex = index === undefined ? this._panes.length - 1 : index;
 
 		// we always do autoscaling on the creation
 		// if autoscale option is true, it is ok, just recalculate by invalidation mask
@@ -287,7 +303,11 @@ export class ChartModel implements IDestroyable {
 		this._invalidate(this._paneInvalidationMask(pane, InvalidationLevel.Light));
 	}
 
-	public setPriceAutoScale(pane: Pane, priceScale: PriceScale, autoScale: boolean): void {
+	public setPriceAutoScale(
+		pane: Pane,
+		priceScale: PriceScale,
+		autoScale: boolean,
+	): void {
 		pane.setPriceAutoScale(priceScale, autoScale);
 		this._invalidate(this._paneInvalidationMask(pane, InvalidationLevel.Light));
 	}
@@ -347,7 +367,10 @@ export class ChartModel implements IDestroyable {
 
 	public scrollTimeTo(x: Coordinate): boolean {
 		let res = false;
-		if (this._initialTimeScrollPos !== null && Math.abs(x - this._initialTimeScrollPos) > 20) {
+		if (
+			this._initialTimeScrollPos !== null &&
+			Math.abs(x - this._initialTimeScrollPos) > 20
+		) {
 			this._initialTimeScrollPos = null;
 			res = true;
 		}
@@ -383,21 +406,31 @@ export class ChartModel implements IDestroyable {
 	}
 
 	public dataSources(): ReadonlyArray<IDataSource> {
-		return this._panes.reduce((arr: IDataSource[], pane: Pane) => arr.concat(pane.dataSources()), []);
+		return this._panes.reduce(
+			(arr: IDataSource[], pane: Pane) => arr.concat(pane.dataSources()),
+			[],
+		);
 	}
 
 	public serieses(): ReadonlyArray<Series> {
 		return this._serieses;
 	}
 
-	public setAndSaveCurrentPosition(x: Coordinate, y: Coordinate, pane: Pane): void {
+	public setAndSaveCurrentPosition(
+		x: Coordinate,
+		y: Coordinate,
+		pane: Pane,
+	): void {
 		this._crosshair.saveOriginCoord(x, y);
 		let price = NaN;
 		let index = this._timeScale.coordinateToIndex(x);
 
 		const visibleBars = this._timeScale.visibleBars();
 		if (visibleBars !== null) {
-			index = Math.min(Math.max(visibleBars.firstBar(), index), visibleBars.lastBar()) as TimePointIndex;
+			index = Math.min(
+				Math.max(visibleBars.firstBar(), index),
+				visibleBars.lastBar(),
+			) as TimePointIndex;
 		}
 
 		const mainSource = pane.mainDataSource();
@@ -433,7 +466,12 @@ export class ChartModel implements IDestroyable {
 		}
 	}
 
-	public updateTimeScale(index: TimePointIndex, values: TimePoint[], marks: TickMark[], clearFlag: boolean): void {
+	public updateTimeScale(
+		index: TimePointIndex,
+		values: TimePoint[],
+		marks: TickMark[],
+		clearFlag: boolean,
+	): void {
 		if (clearFlag) {
 			// refresh timescale
 			this._timeScale.reset();
@@ -451,9 +489,12 @@ export class ChartModel implements IDestroyable {
 					return currentRes;
 				}
 				const currentLastIndex = ensureNotNull(seriesBars.lastIndex());
-				return (currentRes === undefined) ? currentLastIndex : Math.max(currentLastIndex, currentRes) as TimePointIndex;
+				return currentRes === undefined
+					? currentLastIndex
+					: (Math.max(currentLastIndex, currentRes) as TimePointIndex);
 			},
-			undefined);
+			undefined,
+		);
 
 		if (lastSeriesBarIndex !== undefined) {
 			const timeScale = this._timeScale;
@@ -467,7 +508,11 @@ export class ChartModel implements IDestroyable {
 			if (visibleBars !== null) {
 				const isLastSeriesBarVisible = visibleBars.contains(currentBaseIndex);
 
-				if (earliestRowIndex !== undefined && earliestRowIndex > 0 && !isLastSeriesBarVisible) {
+				if (
+					earliestRowIndex !== undefined &&
+					earliestRowIndex > 0 &&
+					!isLastSeriesBarVisible
+				) {
 					const compensationShift = lastSeriesBarIndex - currentBaseIndex;
 
 					timeScale.setRightOffset(timeScale.rightOffset() - compensationShift);
@@ -489,7 +534,9 @@ export class ChartModel implements IDestroyable {
 	}
 
 	public paneForSource(source: IDataSource): Pane | null {
-		const pane = this._panes.find((p: Pane) => p.orderedSources().includes(source));
+		const pane = this._panes.find((p: Pane) =>
+			p.orderedSources().includes(source),
+		);
 		return pane === undefined ? null : pane;
 	}
 
@@ -508,7 +555,8 @@ export class ChartModel implements IDestroyable {
 	}
 
 	public setPriceAutoScaleForAllMainSources(): void {
-		this._panes.map((p: Pane) => p.mainDataSource())
+		this._panes
+			.map((p: Pane) => p.mainDataSource())
 			.forEach((s: IPriceDataSource | null) => {
 				if (s !== null) {
 					const priceScale = ensureNotNull(s.priceScale());
@@ -535,7 +583,10 @@ export class ChartModel implements IDestroyable {
 		return this._panes[0].defaultPriceScale();
 	}
 
-	public createSeries<T extends SeriesType>(seriesType: T, options: SeriesOptionsMap[T]): Series<T> {
+	public createSeries<T extends SeriesType>(
+		seriesType: T,
+		options: SeriesOptionsMap[T],
+	): Series<T> {
 		const pane = this._panes[0];
 		const series = this._createSeries(options, seriesType, pane);
 		this._serieses.push(series);
@@ -575,7 +626,10 @@ export class ChartModel implements IDestroyable {
 		this._invalidate(mask);
 	}
 
-	private _paneInvalidationMask(pane: Pane | null, level: InvalidationLevel): InvalidateMask {
+	private _paneInvalidationMask(
+		pane: Pane | null,
+		level: InvalidationLevel,
+	): InvalidateMask {
 		const inv = new InvalidateMask(level);
 		if (pane !== null) {
 			const index = this._panes.indexOf(pane);
@@ -586,12 +640,18 @@ export class ChartModel implements IDestroyable {
 		return inv;
 	}
 
-	private _invalidationMaskForSource(source: IDataSource, invalidateType?: InvalidationLevel): InvalidateMask {
+	private _invalidationMaskForSource(
+		source: IDataSource,
+		invalidateType?: InvalidationLevel,
+	): InvalidateMask {
 		if (invalidateType === undefined) {
 			invalidateType = InvalidationLevel.Light;
 		}
 
-		return this._paneInvalidationMask(this.paneForSource(source), invalidateType);
+		return this._paneInvalidationMask(
+			this.paneForSource(source),
+			invalidateType,
+		);
 	}
 
 	private _invalidate(mask: InvalidateMask): void {
@@ -606,10 +666,19 @@ export class ChartModel implements IDestroyable {
 		this._invalidate(new InvalidateMask(InvalidationLevel.Cursor));
 	}
 
-	private _createSeries<T extends SeriesType>(options: SeriesOptionsMap[T], seriesType: T, pane: Pane): Series<T> {
+	private _createSeries<T extends SeriesType>(
+		options: SeriesOptionsMap[T],
+		seriesType: T,
+		pane: Pane,
+	): Series<T> {
 		const series = new Series<T>(this, options, seriesType);
 
-		pane.addDataSource(series, Boolean(options.overlay), false);
+		pane.addDataSource(
+			series,
+			Boolean(options.overlay),
+			false,
+			options.scaleGroup,
+		);
 
 		if (options.overlay) {
 			// let's apply that options again to apply margins

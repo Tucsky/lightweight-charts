@@ -36,7 +36,9 @@ export interface CandlestickStyleOptions {
 	wickDownColor: string;
 }
 
-export function fillUpDownCandlesticksColors(options: Partial<CandlestickStyleOptions>): void {
+export function fillUpDownCandlesticksColors(
+	options: Partial<CandlestickStyleOptions>,
+): void {
 	if (options.borderColor !== undefined) {
 		options.borderUpColor = options.borderColor;
 		options.borderDownColor = options.borderColor;
@@ -172,6 +174,8 @@ export interface SeriesOptionsCommon {
 	/** Title of the series. This label is placed with price axis label */
 	title: string;
 
+	scaleGroup: string;
+
 	/**
 	 * @internal
 	 */
@@ -225,13 +229,17 @@ export type BarSeriesPartialOptions = SeriesPartialOptions<BarStyleOptions>;
  * Structure describing candlesticks series options.
  */
 export type CandlestickSeriesOptions = SeriesOptions<CandlestickStyleOptions>;
-export type CandlestickSeriesPartialOptions = SeriesPartialOptions<CandlestickStyleOptions>;
+export type CandlestickSeriesPartialOptions = SeriesPartialOptions<
+	CandlestickStyleOptions
+>;
 
 /**
  * Structure describing histogram series options.
  */
 export type HistogramSeriesOptions = SeriesOptions<HistogramStyleOptions>;
-export type HistogramSeriesPartialOptions = SeriesPartialOptions<HistogramStyleOptions>;
+export type HistogramSeriesPartialOptions = SeriesPartialOptions<
+	HistogramStyleOptions
+>;
 
 /**
  * Structure describing line series options.

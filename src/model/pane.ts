@@ -38,22 +38,30 @@ export class Pane implements IDestroyable {
 	private _mainDataSource: IPriceDataSource | null = null;
 	private _cachedOrderedSources: ReadonlyArray<IDataSource> | null = null;
 
+	private _groupedPriceScale: { [id: string]: PriceScale } = {};
+
 	private _destroyed: Delegate = new Delegate();
 
 	public constructor(timeScale: TimeScale, model: ChartModel) {
 		this._timeScale = timeScale;
 		this._model = model;
 
-		this.model().mainPriceScaleOptionsChanged().subscribe(this.onPriceScaleOptionsChanged.bind(this), this);
+		this.model()
+			.mainPriceScaleOptionsChanged()
+			.subscribe(this.onPriceScaleOptionsChanged.bind(this), this);
 		this._defaultNonOverlayPriceScale = this._createPriceScale();
 	}
 
 	public onPriceScaleOptionsChanged(): void {
-		this._defaultNonOverlayPriceScale.applyOptions(this._model.options().priceScale);
+		this._defaultNonOverlayPriceScale.applyOptions(
+			this._model.options().priceScale,
+		);
 	}
 
 	public destroy(): void {
-		this.model().mainPriceScaleOptionsChanged().unsubscribeAll(this);
+		this.model()
+			.mainPriceScaleOptionsChanged()
+			.unsubscribeAll(this);
 
 		this._defaultNonOverlayPriceScale.modeChanged().unsubscribeAll(this);
 
@@ -119,9 +127,14 @@ export class Pane implements IDestroyable {
 		return this._defaultNonOverlayPriceScale !== priceScale;
 	}
 
-	public addDataSource(source: IDataSource, overlay: boolean, keepZorder: boolean): void {
+	public addDataSource(
+		source: IDataSource,
+		overlay: boolean,
+		keepZorder: boolean,
+		scaleGroup?: string,
+	): void {
 		const zOrder = this._getZOrderMinMax().minZOrder - 1;
-		this._insertDataSource(source, overlay, zOrder);
+		this._insertDataSource(source, overlay, zOrder, scaleGroup);
 	}
 
 	public removeDataSource(source: IDataSource): void {
@@ -147,7 +160,11 @@ export class Pane implements IDestroyable {
 
 		if (priceScale && priceScale.mainSource() === null) {
 			const dataSourceCount = priceScale.dataSources().length;
-			assert(dataSourceCount === 0, 'Invalid priceScale state: empty mainSource but non-empty data sources=' + dataSourceCount);
+			assert(
+				dataSourceCount === 0,
+				'Invalid priceScale state: empty mainSource but non-empty data sources=' +
+					dataSourceCount,
+			);
 
 			if (priceScale !== this._defaultNonOverlayPriceScale) {
 				priceScale.modeChanged().unsubscribeAll(this);
@@ -288,9 +305,21 @@ export class Pane implements IDestroyable {
 		return this._destroyed;
 	}
 
-	private _findSuitableScale(source: IPriceDataSource, preferredScale: PreferredPriceScalePosition): PriceScale {
+	private _findSuitableScale(
+		source: IPriceDataSource,
+		preferredScale: PreferredPriceScalePosition,
+		scaleGroup?: string,
+	): PriceScale {
 		if (preferredScale !== 'overlay') {
 			return this._defaultNonOverlayPriceScale;
+		}
+
+		if (scaleGroup) {
+			if (!this._groupedPriceScale[scaleGroup]) {
+				this._groupedPriceScale[scaleGroup] = this._createPriceScale();
+			}
+
+			return this._groupedPriceScale[scaleGroup];
 		}
 
 		return this._createPriceScale(true);
@@ -300,7 +329,11 @@ export class Pane implements IDestroyable {
 		// TODO: can use this checks
 		const sourceForAutoScale = priceScale.sourcesForAutoScale();
 
-		if (sourceForAutoScale && sourceForAutoScale.length > 0 && !this._timeScale.isEmpty()) {
+		if (
+			sourceForAutoScale &&
+			sourceForAutoScale.length > 0 &&
+			!this._timeScale.isEmpty()
+		) {
 			const visibleBars = this._timeScale.visibleBars();
 			if (visibleBars !== null) {
 				priceScale.recalculatePriceRange(visibleBars);
@@ -335,16 +368,26 @@ export class Pane implements IDestroyable {
 		return { minZOrder: minZOrder, maxZOrder: maxZOrder };
 	}
 
-	private _insertDataSource(source: IDataSource, overlay: boolean, zOrder: number): void {
+	private _insertDataSource(
+		source: IDataSource,
+		overlay: boolean,
+		zOrder: number,
+		scaleGroup?: string,
+	): void {
 		let priceScalePosition: PreferredPriceScalePosition = 'overlay';
 		let priceScale: PriceScale | null = null;
 		if (!overlay) {
 			const optionsPosition = this.model().options().priceScale.position;
-			priceScalePosition = optionsPosition === 'none' ? 'overlay' : optionsPosition;
+			priceScalePosition =
+				optionsPosition === 'none' ? 'overlay' : optionsPosition;
 		}
 
 		if (source instanceof PriceDataSource) {
-			priceScale = this._findSuitableScale(source, priceScalePosition);
+			priceScale = this._findSuitableScale(
+				source,
+				priceScalePosition,
+				scaleGroup,
+			);
 		}
 
 		this._dataSources.push(source);
@@ -367,7 +410,11 @@ export class Pane implements IDestroyable {
 		this._cachedOrderedSources = null;
 	}
 
-	private _onPriceScaleModeChanged(priceScale: PriceScale, oldMode: PriceScaleState, newMode: PriceScaleState): void {
+	private _onPriceScaleModeChanged(
+		priceScale: PriceScale,
+		oldMode: PriceScaleState,
+		newMode: PriceScaleState,
+	): void {
 		if (oldMode.mode === newMode.mode) {
 			return;
 		}
@@ -377,7 +424,10 @@ export class Pane implements IDestroyable {
 	}
 
 	private _processMainSourceChange(): void {
-		if (this._mainDataSource === null || this._overlaySources.indexOf(this._mainDataSource) !== -1) {
+		if (
+			this._mainDataSource === null ||
+			this._overlaySources.indexOf(this._mainDataSource) !== -1
+		) {
 			// first check non-overlay sources
 			for (const source of this._dataSources) {
 				if (source instanceof PriceDataSource && !this.isOverlay(source)) {
@@ -397,8 +447,12 @@ export class Pane implements IDestroyable {
 
 	private _setMainSource(source: IPriceDataSource): void {
 		const priceScale = ensureNotNull(source.priceScale());
-		this.defaultPriceScale().modeChanged().unsubscribeAll(this);
-		priceScale.modeChanged().subscribe(this._onPriceScaleModeChanged.bind(this, priceScale), this);
+		this.defaultPriceScale()
+			.modeChanged()
+			.unsubscribeAll(this);
+		priceScale
+			.modeChanged()
+			.subscribe(this._onPriceScaleModeChanged.bind(this, priceScale), this);
 		this._mainDataSource = source;
 	}
 
@@ -414,7 +468,7 @@ export class Pane implements IDestroyable {
 		const priceScale = new PriceScale(
 			priceScaleOptions,
 			this._model.options().layout,
-			this._model.options().localization
+			this._model.options().localization,
 		);
 		priceScale.setHeight(this.height());
 		return priceScale;
