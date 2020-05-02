@@ -1,6 +1,6 @@
 /*!
  * @license
- * TradingView Lightweight Charts v2.1.0-dev+202003050952
+ * TradingView Lightweight Charts v2.1.0-dev+202005021212
  * Copyright (c) 2019 TradingView, Inc.
  * Licensed under Apache License 2.0 https://www.apache.org/licenses/LICENSE-2.0
  */
@@ -2025,8 +2025,10 @@
             ctx.moveTo(this._data.items[this._data.visibleRange.from].x, this._data.bottom);
             ctx.lineTo(this._data.items[this._data.visibleRange.from].x, this._data.items[this._data.visibleRange.from].y);
             walkLine(ctx, this._data.items, this._data.lineType, this._data.visibleRange);
-            ctx.lineTo(this._data.items[this._data.visibleRange.to - 1].x, this._data.bottom);
-            ctx.lineTo(this._data.items[this._data.visibleRange.from].x, this._data.bottom);
+            if (this._data.visibleRange.to > this._data.visibleRange.from) {
+                ctx.lineTo(this._data.items[this._data.visibleRange.to - 1].x, this._data.bottom);
+                ctx.lineTo(this._data.items[this._data.visibleRange.from].x, this._data.bottom);
+            }
             ctx.closePath();
             var gradient = ctx.createLinearGradient(0, 0, 0, this._data.bottom);
             gradient.addColorStop(0, this._data.topColor);
@@ -2960,6 +2962,28 @@
         return SeriesHorizontalBaseLinePaneView;
     }(SeriesHorizontalLinePaneView));
 
+    /**
+     * Default font family.
+     * Must be used to generate font string when font is not specified.
+     */
+    var defaultFontFamily = "'Trebuchet MS', Roboto, Ubuntu, sans-serif";
+    /**
+     * Generates a font string, which can be used to set in canvas' font property.
+     * If no family provided, [defaultFontFamily] will be used.
+     */
+    function makeFont(size, family, style) {
+        if (style !== undefined) {
+            style = style + " ";
+        }
+        else {
+            style = '';
+        }
+        if (family === undefined) {
+            family = defaultFontFamily;
+        }
+        return "" + style + size + "px " + family;
+    }
+
     var Constants$2;
     (function (Constants) {
         Constants[Constants["MinShapeSize"] = 12] = "MinShapeSize";
@@ -2988,12 +3012,11 @@
         return Math.max(size(barSpacing, 0.1), 3 /* MinShapeMargin */);
     }
 
-    function drawSquare(ctx, centerX, centerY, color, size) {
+    function drawSquare(ctx, centerX, centerY, size) {
         var squareSize = shapeSize('square', size);
         var halfSize = (squareSize - 1) / 2;
         var left = centerX - halfSize;
         var top = centerY - halfSize;
-        ctx.fillStyle = color;
         ctx.fillRect(left, top, squareSize, squareSize);
     }
     function hitTestSquare(centerX, centerY, size, x, y) {
@@ -3005,12 +3028,11 @@
             y >= top && y <= top + squareSize;
     }
 
-    function drawArrow(up, ctx, centerX, centerY, color, size) {
+    function drawArrow(up, ctx, centerX, centerY, size) {
         var arrowSize = shapeSize('arrowUp', size);
         var halfArrowSize = (arrowSize - 1) / 2;
         var baseSize = ceiledOdd(size / 2);
         var halfBaseSize = (baseSize - 1) / 2;
-        ctx.fillStyle = color;
         ctx.beginPath();
         if (up) {
             ctx.moveTo(centerX - halfArrowSize, centerY);
@@ -3037,10 +3059,9 @@
         return hitTestSquare(centerX, centerY, size, x, y);
     }
 
-    function drawCircle(ctx, centerX, centerY, color, size) {
+    function drawCircle(ctx, centerX, centerY, size) {
         var circleSize = shapeSize('circle', size);
         var halfSize = (circleSize - 1) / 2;
-        ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(centerX, centerY, halfSize, 0, 2 * Math.PI, false);
         ctx.fill();
@@ -3054,15 +3075,36 @@
         return dist <= tolerance;
     }
 
+    function drawText(ctx, text) {
+        ctx.fillText(text.content, text.x, text.y);
+    }
+    function hitTestText(text, x, y) {
+        var halfHeight = text.height / 2;
+        return x >= text.x && x <= text.x + text.width &&
+            y >= text.y - halfHeight && y <= text.y + halfHeight;
+    }
+
     var SeriesMarkersRenderer = /** @class */ (function (_super) {
         __extends(SeriesMarkersRenderer, _super);
         function SeriesMarkersRenderer() {
             var _this = _super !== null && _super.apply(this, arguments) || this;
             _this._private__data = null;
+            _this._private__textWidthCache = new TextWidthCache();
+            _this._private__fontSize = -1;
+            _this._private__fontFamily = '';
+            _this._private__font = '';
             return _this;
         }
         SeriesMarkersRenderer.prototype.setData = function (data) {
             this._private__data = data;
+        };
+        SeriesMarkersRenderer.prototype.setParams = function (fontSize, fontFamily) {
+            if (this._private__fontSize !== fontSize || this._private__fontFamily !== fontFamily) {
+                this._private__fontSize = fontSize;
+                this._private__fontFamily = fontFamily;
+                this._private__font = makeFont(fontSize, fontFamily);
+                this._private__textWidthCache.reset();
+            }
         };
         SeriesMarkersRenderer.prototype.hitTest = function (x, y) {
             if (this._private__data === null || this._private__data.visibleRange === null) {
@@ -3083,31 +3125,57 @@
             if (this._private__data === null || this._private__data.visibleRange === null) {
                 return;
             }
+            ctx.textBaseline = 'middle';
+            ctx.font = this._private__font;
             for (var i = this._private__data.visibleRange.from; i < this._private__data.visibleRange.to; i++) {
                 var item = this._private__data.items[i];
+                if (item.text !== undefined) {
+                    item.text.width = this._private__textWidthCache.measureText(ctx, item.text.content);
+                    item.text.height = this._private__fontSize;
+                    item.text.x = item.text.x - item.text.width / 2;
+                }
                 drawItem(item, ctx);
             }
         };
         return SeriesMarkersRenderer;
     }(ScaledRenderer));
     function drawItem(item, ctx) {
+        ctx.fillStyle = item.color;
+        if (item.text !== undefined) {
+            drawText(ctx, item.text);
+        }
+        drawShape(item, ctx);
+    }
+    function drawShape(item, ctx) {
+        if (item.size === 0) {
+            return;
+        }
         switch (item.shape) {
             case 'arrowDown':
-                drawArrow(false, ctx, item.x, item.y, item.color, item.size);
+                drawArrow(false, ctx, item.x, item.y, item.size);
                 return;
             case 'arrowUp':
-                drawArrow(true, ctx, item.x, item.y, item.color, item.size);
+                drawArrow(true, ctx, item.x, item.y, item.size);
                 return;
             case 'circle':
-                drawCircle(ctx, item.x, item.y, item.color, item.size);
+                drawCircle(ctx, item.x, item.y, item.size);
                 return;
             case 'square':
-                drawSquare(ctx, item.x, item.y, item.color, item.size);
+                drawSquare(ctx, item.x, item.y, item.size);
                 return;
         }
         ensureNever(item.shape);
     }
     function hitTestItem(item, x, y) {
+        if (item.text !== undefined && hitTestText(item.text, x, y)) {
+            return true;
+        }
+        return hitTestShape(item, x, y);
+    }
+    function hitTestShape(item, x, y) {
+        if (item.size === 0) {
+            return false;
+        }
         switch (item.shape) {
             case 'arrowDown':
                 return hitTestArrow(true, item.x, item.y, item.size, x, y);
@@ -3121,26 +3189,43 @@
         ensureNever(item.shape);
     }
 
+    var Constants$3;
+    (function (Constants) {
+        Constants[Constants["TextMargin"] = 0.1] = "TextMargin";
+    })(Constants$3 || (Constants$3 = {}));
     function fillSizeAndY(
     // tslint:disable-next-line:max-params
-    rendererItem, marker, seriesData, offsets, shapeMargin, priceScale, timeScale, firstValue) {
+    rendererItem, marker, seriesData, offsets, textHeight, shapeMargin, priceScale, timeScale, firstValue) {
         var inBarPrice = isNumber(seriesData) ? seriesData : seriesData.close;
         var highPrice = isNumber(seriesData) ? seriesData : seriesData.high;
         var lowPrice = isNumber(seriesData) ? seriesData : seriesData.low;
-        var shapeSize = calculateShapeHeight(timeScale.barSpacing());
+        var sizeMultiplier = isNumber(marker.size) ? Math.max(marker.size, 0) : 1;
+        var shapeSize = calculateShapeHeight(timeScale.barSpacing()) * sizeMultiplier;
+        var halfSize = shapeSize / 2;
         rendererItem.size = shapeSize;
         switch (marker.position) {
             case 'inBar': {
                 rendererItem.y = priceScale.priceToCoordinate(inBarPrice, firstValue);
+                if (rendererItem.text !== undefined) {
+                    rendererItem.text.y = rendererItem.y + halfSize + shapeMargin + textHeight * (0.5 + 0.1 /* TextMargin */);
+                }
                 return;
             }
             case 'aboveBar': {
-                rendererItem.y = (priceScale.priceToCoordinate(highPrice, firstValue) - shapeSize / 2 - offsets.aboveBar);
+                rendererItem.y = (priceScale.priceToCoordinate(highPrice, firstValue) - halfSize - offsets.aboveBar);
+                if (rendererItem.text !== undefined) {
+                    rendererItem.text.y = rendererItem.y - halfSize - textHeight * (0.5 + 0.1 /* TextMargin */);
+                    offsets.aboveBar += textHeight * (1 + 2 * 0.1 /* TextMargin */);
+                }
                 offsets.aboveBar += shapeSize + shapeMargin;
                 return;
             }
             case 'belowBar': {
-                rendererItem.y = (priceScale.priceToCoordinate(lowPrice, firstValue) + shapeSize / 2 + offsets.belowBar);
+                rendererItem.y = (priceScale.priceToCoordinate(lowPrice, firstValue) + halfSize + offsets.belowBar);
+                if (rendererItem.text !== undefined) {
+                    rendererItem.text.y = rendererItem.y + halfSize + shapeMargin + textHeight * (0.5 + 0.1 /* TextMargin */);
+                    offsets.belowBar += textHeight * (1 + 2 * 0.1 /* TextMargin */);
+                }
                 offsets.belowBar += shapeSize + shapeMargin;
                 return;
             }
@@ -3172,6 +3257,8 @@
             if (this._private__invalidated) {
                 this._makeValid();
             }
+            var layout = this._private__model.options().layout;
+            this._private__renderer.setParams(layout.fontSize, layout.fontFamily);
             this._private__renderer.setData(this._private__data);
             return this._private__renderer;
         };
@@ -3207,9 +3294,11 @@
                     color: marker.color,
                     internalId: marker.internalId,
                     externalId: marker.id,
+                    text: undefined,
                 }); });
                 this._private__dataInvalidated = false;
             }
+            var layoutOptions = this._private__model.options().layout;
             this._private__data.visibleRange = null;
             var visibleBars = timeScale.visibleBars();
             if (visibleBars === null) {
@@ -3239,11 +3328,20 @@
                 }
                 var rendererItem = this._private__data.items[index];
                 rendererItem.x = timeScale.indexToCoordinate(marker.time);
+                if (marker.text !== undefined && marker.text.length > 0) {
+                    rendererItem.text = {
+                        content: marker.text,
+                        x: rendererItem.x,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    };
+                }
                 var dataAt = this._private__series.dataAt(marker.time);
                 if (dataAt === null) {
                     continue;
                 }
-                fillSizeAndY(rendererItem, marker, dataAt, offsets, shapeMargin$1, priceScale, timeScale, firstValue.value);
+                fillSizeAndY(rendererItem, marker, dataAt, offsets, layoutOptions.fontSize, shapeMargin$1, priceScale, timeScale, firstValue.value);
             }
             this._private__invalidated = false;
         };
@@ -4459,6 +4557,8 @@
                 color: marker.color,
                 id: marker.id,
                 internalId: index,
+                text: marker.text,
+                size: marker.size,
             }); });
         };
         Series.prototype._private__recreatePaneViews = function () {
@@ -5222,33 +5322,1029 @@
         PriceLineSource[PriceLineSource["LastVisible"] = 1] = "LastVisible";
     })(PriceLineSource || (PriceLineSource = {}));
 
+    var getMonth = function (date) { return date.getUTCMonth() + 1; };
+    var getDay = function (date) { return date.getUTCDate(); };
+    var getYear = function (date) { return date.getUTCFullYear(); };
+    var dd = function (date) { return numberToStringWithLeadingZero(getDay(date), 2); };
+    var MMMM = function (date, locale) { return new Date(date.getUTCFullYear(), date.getUTCMonth(), 1)
+        .toLocaleString(locale, { month: 'long' }); };
+    var MMM = function (date, locale) { return new Date(date.getUTCFullYear(), date.getUTCMonth(), 1)
+        .toLocaleString(locale, { month: 'short' }); };
+    var MM = function (date) { return numberToStringWithLeadingZero(getMonth(date), 2); };
+    var yy = function (date) { return numberToStringWithLeadingZero(getYear(date) % 100, 2); };
+    var yyyy = function (date) { return numberToStringWithLeadingZero(getYear(date), 4); };
+    function formatDate(date, format, locale) {
+        return format
+            .replace(/yyyy/g, yyyy(date))
+            .replace(/yy/g, yy(date))
+            .replace(/MMMM/g, MMMM(date, locale))
+            .replace(/MMM/g, MMM(date, locale))
+            .replace(/MM/g, MM(date))
+            .replace(/dd/g, dd(date));
+    }
+
+    var DateFormatter = /** @class */ (function () {
+        function DateFormatter(dateFormat, locale) {
+            if (dateFormat === void 0) { dateFormat = 'yyyy-MM-dd'; }
+            if (locale === void 0) { locale = 'default'; }
+            this._private__dateFormat = dateFormat;
+            this._private__locale = locale;
+        }
+        DateFormatter.prototype.format = function (date) {
+            return formatDate(date, this._private__dateFormat, this._private__locale);
+        };
+        return DateFormatter;
+    }());
+
+    var TimeFormatter = /** @class */ (function () {
+        function TimeFormatter(format) {
+            this._private__formatStr = format || '%h:%m:%s';
+        }
+        TimeFormatter.prototype.format = function (date) {
+            return this._private__formatStr.replace('%h', numberToStringWithLeadingZero(date.getUTCHours(), 2)).
+                replace('%m', numberToStringWithLeadingZero(date.getUTCMinutes(), 2)).
+                replace('%s', numberToStringWithLeadingZero(date.getUTCSeconds(), 2));
+        };
+        return TimeFormatter;
+    }());
+
+    var defaultParams = {
+        dateFormat: 'yyyy-MM-dd',
+        timeFormat: '%h:%m:%s',
+        dateTimeSeparator: ' ',
+        locale: 'default',
+    };
+    var DateTimeFormatter = /** @class */ (function () {
+        function DateTimeFormatter(params) {
+            if (params === void 0) { params = {}; }
+            var formatterParams = __assign(__assign({}, defaultParams), params);
+            this._private__dateFormatter = new DateFormatter(formatterParams.dateFormat, formatterParams.locale);
+            this._private__timeFormatter = new TimeFormatter(formatterParams.timeFormat);
+            this._private__separator = formatterParams.dateTimeSeparator;
+        }
+        DateTimeFormatter.prototype.format = function (dateTime) {
+            return "" + this._private__dateFormatter.format(dateTime) + this._private__separator + this._private__timeFormatter.format(dateTime);
+        };
+        return DateTimeFormatter;
+    }());
+
+    var BarsRange = /** @class */ (function () {
+        function BarsRange(firstBar, lastBar) {
+            assert(firstBar <= lastBar, 'The last bar in the bars range should be greater than or equal to the first bar');
+            this._private__firstBar = firstBar;
+            this._private__lastBar = lastBar;
+        }
+        BarsRange.prototype.firstBar = function () {
+            return this._private__firstBar;
+        };
+        BarsRange.prototype.lastBar = function () {
+            return this._private__lastBar;
+        };
+        BarsRange.prototype.count = function () {
+            return this._private__lastBar - this._private__firstBar + 1;
+        };
+        BarsRange.prototype.contains = function (index) {
+            return this._private__firstBar <= index && index <= this._private__lastBar;
+        };
+        BarsRange.prototype.equals = function (other) {
+            return this._private__firstBar === other.firstBar() && this._private__lastBar === other.lastBar();
+        };
+        return BarsRange;
+    }());
+
+    var FormattedLabelsCache = /** @class */ (function () {
+        function FormattedLabelsCache(format, size) {
+            if (size === void 0) { size = 50; }
+            this._private__actualSize = 0;
+            this._private__usageTick = 1;
+            this._private__oldestTick = 1;
+            this._private__cache = new Map();
+            this._private__tick2Labels = new Map();
+            this._private__format = format;
+            this._private__maxSize = size;
+        }
+        FormattedLabelsCache.prototype.format = function (value) {
+            var cacheKey = value.businessDay === undefined
+                ? new Date(value.timestamp * 1000).getTime()
+                : new Date(Date.UTC(value.businessDay.year, value.businessDay.month - 1, value.businessDay.day)).getTime();
+            var tick = this._private__cache.get(cacheKey);
+            if (tick !== undefined) {
+                return tick.string;
+            }
+            if (this._private__actualSize === this._private__maxSize) {
+                var oldestValue = this._private__tick2Labels.get(this._private__oldestTick);
+                this._private__tick2Labels.delete(this._private__oldestTick);
+                this._private__cache.delete(ensureDefined(oldestValue));
+                this._private__oldestTick++;
+                this._private__actualSize--;
+            }
+            var str = this._private__format(value);
+            this._private__cache.set(cacheKey, { string: str, tick: this._private__usageTick });
+            this._private__tick2Labels.set(this._private__usageTick, cacheKey);
+            this._private__actualSize++;
+            this._private__usageTick++;
+            return str;
+        };
+        return FormattedLabelsCache;
+    }());
+
+    function sortByIndexAsc(a, b) {
+        return a.index - b.index;
+    }
+    var TickMarks = /** @class */ (function () {
+        function TickMarks() {
+            this._private__minIndex = Infinity;
+            this._private__maxIndex = -Infinity;
+            // Hash of tick marks
+            this._private__marksByIndex = new Map();
+            // Sparse array with ordered arrays of tick marks
+            this._private__marksBySpan = [];
+            this._private__changed = new Delegate();
+            this._private__cache = null;
+            this._private__maxBar = NaN;
+        }
+        TickMarks.prototype.reset = function () {
+            this._private__marksByIndex.clear();
+            this._private__marksBySpan = [];
+            this._private__minIndex = Infinity;
+            this._private__maxIndex = -Infinity;
+            this._private__cache = null;
+            this._private__changed.fire();
+        };
+        // tslint:disable-next-line:cyclomatic-complexity
+        TickMarks.prototype.merge = function (tickMarks) {
+            var marksBySpan = this._private__marksBySpan;
+            var unsortedSpans = {};
+            for (var _i = 0, tickMarks_1 = tickMarks; _i < tickMarks_1.length; _i++) {
+                var tickMark = tickMarks_1[_i];
+                var index = tickMark.index;
+                var span = tickMark.span;
+                var existingTickMark = this._private__marksByIndex.get(tickMark.index);
+                if (existingTickMark) {
+                    if (existingTickMark.index === tickMark.index && existingTickMark.span === tickMark.span) {
+                        // We don't need to do anything, just update time (if it differs)
+                        existingTickMark.time = tickMark.time;
+                        continue;
+                    }
+                    // TickMark exists, but it differs. We need to remove it first
+                    this._private__removeTickMark(existingTickMark);
+                }
+                // Set into hash
+                this._private__marksByIndex.set(index, tickMark);
+                if (this._private__minIndex > index) { // It's not the same as `this.minIndex > index`, mind the NaN
+                    this._private__minIndex = index;
+                }
+                if (this._private__maxIndex < index) {
+                    this._private__maxIndex = index;
+                }
+                // Store it in span arrays
+                var marks = marksBySpan[span];
+                if (marks === undefined) {
+                    marks = [];
+                    marksBySpan[span] = marks;
+                }
+                marks.push(tickMark);
+                unsortedSpans[span] = true;
+            }
+            // Clean up and sort arrays
+            for (var span = marksBySpan.length; span--;) {
+                var marks = marksBySpan[span];
+                if (marks === undefined) {
+                    continue;
+                }
+                if (marks.length === 0) {
+                    delete marksBySpan[span];
+                }
+                if (unsortedSpans[span]) {
+                    marks.sort(sortByIndexAsc);
+                }
+            }
+            this._private__cache = null;
+            this._private__changed.fire();
+        };
+        TickMarks.prototype.indexToTime = function (index) {
+            var tickMark = this._private__marksByIndex.get(index);
+            if (tickMark === undefined) {
+                return null;
+            }
+            return tickMark.time;
+        };
+        TickMarks.prototype.nearestIndex = function (time) {
+            var left = this._private__minIndex;
+            var right = this._private__maxIndex;
+            while (right - left > 2) {
+                if (ensureDefined(this._private__marksByIndex.get(left)).time.timestamp * 1000 === time) {
+                    return left;
+                }
+                if (ensureDefined(this._private__marksByIndex.get(right)).time.timestamp * 1000 === time) {
+                    return right;
+                }
+                var center = Math.round((left + right) / 2);
+                if (ensureDefined(this._private__marksByIndex.get(center)).time.timestamp * 1000 > time) {
+                    right = center;
+                }
+                else {
+                    left = center;
+                }
+            }
+            return left;
+        };
+        TickMarks.prototype.build = function (spacing, maxWidth) {
+            var maxBar = Math.ceil(maxWidth / spacing);
+            if (this._private__maxBar === maxBar && this._private__cache) {
+                return this._private__cache;
+            }
+            this._private__maxBar = maxBar;
+            var marks = [];
+            for (var span = this._private__marksBySpan.length; span--;) {
+                if (!this._private__marksBySpan[span]) {
+                    continue;
+                }
+                // Built tickMarks are now prevMarks, and marks it as new array
+                var prevMarks = marks;
+                marks = [];
+                var prevMarksLength = prevMarks.length;
+                var prevMarksPointer = 0;
+                var currentSpan = ensureDefined(this._private__marksBySpan[span]);
+                var currentSpanLength = currentSpan.length;
+                var rightIndex = Infinity;
+                var leftIndex = -Infinity;
+                for (var i = 0; i < currentSpanLength; i++) {
+                    var mark = currentSpan[i];
+                    var currentIndex = mark.index;
+                    // Determine indexes with which current index will be compared
+                    // All marks to the right is moved to new array
+                    while (prevMarksPointer < prevMarksLength) {
+                        var lastMark = prevMarks[prevMarksPointer];
+                        var lastIndex = lastMark.index;
+                        if (lastIndex < currentIndex) {
+                            prevMarksPointer++;
+                            marks.push(lastMark);
+                            leftIndex = lastIndex;
+                            rightIndex = Infinity;
+                        }
+                        else {
+                            rightIndex = lastIndex;
+                            break;
+                        }
+                    }
+                    if (rightIndex - currentIndex >= maxBar && currentIndex - leftIndex >= maxBar) {
+                        // TickMark fits. Place it into new array
+                        marks.push(mark);
+                        leftIndex = currentIndex;
+                    }
+                }
+                // Place all unused tickMarks into new array;
+                for (; prevMarksPointer < prevMarksLength; prevMarksPointer++) {
+                    marks.push(prevMarks[prevMarksPointer]);
+                }
+            }
+            this._private__cache = marks;
+            return this._private__cache;
+        };
+        TickMarks.prototype._private__removeTickMark = function (tickMark) {
+            var index = tickMark.index;
+            if (this._private__marksByIndex.get(index) !== tickMark) {
+                return;
+            }
+            this._private__marksByIndex.delete(index);
+            if (index <= this._private__minIndex) {
+                this._private__minIndex++;
+            }
+            if (index >= this._private__maxIndex) {
+                this._private__maxIndex--;
+            }
+            if (this._private__maxIndex < this._private__minIndex) {
+                this._private__minIndex = Infinity;
+                this._private__maxIndex = -Infinity;
+            }
+            var spanArray = ensureDefined(this._private__marksBySpan[tickMark.span]);
+            var position = spanArray.indexOf(tickMark);
+            if (position !== -1) {
+                // Keeps array sorted
+                spanArray.splice(position, 1);
+            }
+        };
+        return TickMarks;
+    }());
+
+    /**
+     * This is the collection of time points, that allows to store and find the every time point using it's index.
+     */
+    var TimePoints = /** @class */ (function () {
+        function TimePoints() {
+            this._private__items = [];
+        }
+        TimePoints.prototype.clear = function () {
+            this._private__items = [];
+        };
+        TimePoints.prototype.size = function () {
+            return this._private__items.length;
+        };
+        TimePoints.prototype.firstIndex = function () {
+            return this._private__offsetToIndex(0);
+        };
+        TimePoints.prototype.lastIndex = function () {
+            return this._private__offsetToIndex(this._private__items.length - 1);
+        };
+        TimePoints.prototype.merge = function (index, values) {
+            if (values.length === 0) {
+                return;
+            }
+            // assume that 'values' contains at least one TimePoint
+            if (this._private__items.length === 0) {
+                this._private__items = values;
+                return;
+            }
+            var start = index;
+            if (start < 0) {
+                var n = Math.abs(start);
+                if (values.length < n) {
+                    return;
+                }
+                // tslint:disable-next-line:prefer-array-literal
+                this._private__items = new Array(n).concat(this._private__items);
+                // tslint:disable-next-line:no-shadowed-variable
+                for (var i_1 = 0; i_1 < values.length; ++i_1) {
+                    this._private__items[index + i_1] = values[i_1];
+                }
+                return;
+            }
+            var i = start;
+            for (; i < this._private__items.length && (i - start) < values.length; ++i) {
+                this._private__items[i] = values[i - start];
+            }
+            var end = start + values.length;
+            if (end > this._private__items.length) {
+                var n = end - this._private__items.length;
+                for (var j = i; j < i + n; ++j) {
+                    this._private__items.push(values[j - start]);
+                }
+            }
+        };
+        TimePoints.prototype.valueAt = function (index) {
+            var offset = this._private__indexToOffset(index);
+            if (offset !== null) {
+                return this._private__items[offset];
+            }
+            return null;
+        };
+        TimePoints.prototype.indexOf = function (time, findNearest) {
+            if (this._private__items.length < 1) {
+                // no time points available
+                return null;
+            }
+            if (time > this._private__items[this._private__items.length - 1].timestamp) {
+                // special case
+                return findNearest ? this._private__items.length - 1 : null;
+            }
+            for (var i = 0; i < this._private__items.length; ++i) {
+                if (time === this._private__items[i].timestamp) {
+                    return i;
+                }
+                if (time < this._private__items[i].timestamp) {
+                    return findNearest ? i : null;
+                }
+            }
+            // in fact, this code is unreachable because we already
+            // have special case for time > this._items[this._items.length - 1]
+            return null;
+        };
+        TimePoints.prototype.closestIndexLeft = function (time) {
+            var items = this._private__items;
+            if (!items.length) {
+                return null;
+            }
+            if (Number.isNaN(time.timestamp)) {
+                return null;
+            }
+            var maxOffset = items.length - 1;
+            var maxTime = items[maxOffset];
+            if (time >= maxTime) {
+                return maxOffset;
+            }
+            var minOffset = 0;
+            var minTime = items[minOffset];
+            if (time < minTime) {
+                return null;
+            }
+            else if (time === minTime) {
+                return minOffset;
+            }
+            // binary search
+            while (maxOffset > minOffset + 1) {
+                var testOffset = (minOffset + maxOffset) >> 1;
+                var testValue = items[testOffset];
+                if (testValue.timestamp > time.timestamp) {
+                    maxOffset = testOffset;
+                }
+                else if (testValue.timestamp < time.timestamp) {
+                    minOffset = testOffset;
+                }
+                else if (testValue.timestamp === time.timestamp) {
+                    return testOffset;
+                }
+                else {
+                    return null;
+                }
+            }
+            return minOffset;
+        };
+        TimePoints.prototype._private__offsetToIndex = function (offset) {
+            if (0 <= offset && offset < this.size()) {
+                return offset;
+            }
+            return null;
+        };
+        TimePoints.prototype._private__indexToOffset = function (index) {
+            if (0 <= index && index < this.size()) {
+                return index;
+            }
+            return null;
+        };
+        return TimePoints;
+    }());
+
+    var Constants$4;
+    (function (Constants) {
+        Constants[Constants["DefaultAnimationDuration"] = 400] = "DefaultAnimationDuration";
+        Constants[Constants["MinBarSpacing"] = 0.5] = "MinBarSpacing";
+        // make sure that this (1 / MinVisibleBarsCount) >= coeff in max bar spacing
+        Constants[Constants["MinVisibleBarsCount"] = 2] = "MinVisibleBarsCount";
+    })(Constants$4 || (Constants$4 = {}));
+    var MarkSpanBorder;
+    (function (MarkSpanBorder) {
+        MarkSpanBorder[MarkSpanBorder["Minute"] = 20] = "Minute";
+        MarkSpanBorder[MarkSpanBorder["Hour"] = 30] = "Hour";
+        MarkSpanBorder[MarkSpanBorder["Day"] = 40] = "Day";
+        MarkSpanBorder[MarkSpanBorder["Week"] = 50] = "Week";
+        MarkSpanBorder[MarkSpanBorder["Month"] = 60] = "Month";
+        MarkSpanBorder[MarkSpanBorder["Year"] = 70] = "Year";
+    })(MarkSpanBorder || (MarkSpanBorder = {}));
+    var TickMarkType;
+    (function (TickMarkType) {
+        TickMarkType[TickMarkType["Year"] = 0] = "Year";
+        TickMarkType[TickMarkType["Month"] = 1] = "Month";
+        TickMarkType[TickMarkType["DayOfMonth"] = 2] = "DayOfMonth";
+        TickMarkType[TickMarkType["Time"] = 3] = "Time";
+        TickMarkType[TickMarkType["TimeWithSeconds"] = 4] = "TimeWithSeconds";
+    })(TickMarkType || (TickMarkType = {}));
+    var TimeScale = /** @class */ (function () {
+        function TimeScale(model, options, localizationOptions) {
+            this._private__width = 0;
+            this._private__baseIndexOrNull = null;
+            this._private__points = new TimePoints();
+            this._private__scrollStartPoint = null;
+            this._private__scaleStartPoint = null;
+            this._private__tickMarks = new TickMarks();
+            this._private__formattedBySpan = new Map();
+            this._private__visibleBars = null;
+            this._private__visibleBarsInvalidated = true;
+            this._private__visibleBarsChanged = new Delegate();
+            this._private__optionsApplied = new Delegate();
+            this._private__leftEdgeIndex = null;
+            this._private__commonTransitionStartState = null;
+            this._private__timeMarksCache = null;
+            this._private__labels = [];
+            this._private__options = options;
+            this._private__localizationOptions = localizationOptions;
+            this._private__rightOffset = options.rightOffset;
+            this._private__barSpacing = options.barSpacing;
+            this._private__model = model;
+            this._private__updateDateTimeFormatter();
+        }
+        TimeScale.prototype.options = function () {
+            return this._private__options;
+        };
+        TimeScale.prototype.applyLocalizationOptions = function (localizationOptions) {
+            merge(this._private__localizationOptions, localizationOptions);
+            this._private__invalidateTickMarks();
+            this._private__updateDateTimeFormatter();
+        };
+        TimeScale.prototype.applyOptions = function (options, localizationOptions) {
+            merge(this._private__options, options);
+            if (this._private__options.fixLeftEdge) {
+                this._private__fixLeftEdge();
+            }
+            else {
+                this._private__leftEdgeIndex = null;
+            }
+            // note that bar spacing should be applied before right offset
+            // because right offset depends on bar spacing
+            if (options.barSpacing !== undefined) {
+                this.setBarSpacing(options.barSpacing);
+            }
+            if (options.rightOffset !== undefined) {
+                this.setRightOffset(options.rightOffset);
+            }
+            this._private__invalidateTickMarks();
+            this._private__updateDateTimeFormatter();
+            this._private__optionsApplied.fire();
+        };
+        TimeScale.prototype.isEmpty = function () {
+            return this._private__width === 0 || this._private__points.size() === 0;
+        };
+        TimeScale.prototype.visibleBars = function () {
+            if (this._private__visibleBarsInvalidated) {
+                this._private__visibleBarsInvalidated = false;
+                this._private__updateVisibleBars();
+            }
+            return this._private__visibleBars;
+        };
+        TimeScale.prototype.tickMarks = function () {
+            return this._private__tickMarks;
+        };
+        TimeScale.prototype.points = function () {
+            return this._private__points;
+        };
+        TimeScale.prototype.width = function () {
+            return this._private__width;
+        };
+        TimeScale.prototype.setWidth = function (width) {
+            if (!isFinite(width) || width <= 0) {
+                return;
+            }
+            if (this._private__width === width) {
+                return;
+            }
+            if (this._private__options.lockVisibleTimeRangeOnResize && this._private__width) {
+                // recalculate bar spacing
+                var newBarSpacing = this._private__barSpacing * width / this._private__width;
+                this._private__setBarSpacing(newBarSpacing);
+            }
+            // if time scale is scrolled to the end of data and we have fixed right edge
+            // keep left edge instead of right
+            // we need it to avoid "shaking" if the last bar visibility affects time scale width
+            if (this._private__leftEdgeIndex !== null) {
+                var firstVisibleBar = ensureNotNull(this.visibleBars()).firstBar();
+                // firstVisibleBar could be less than this._leftEdgeIndex
+                // since index is a center of bar
+                if (firstVisibleBar <= this._private__leftEdgeIndex) {
+                    var delta = this._private__width - width;
+                    // reduce  _rightOffset means move right
+                    // we could move more than required - this will be fixed by _correctOffset()
+                    this._private__rightOffset -= Math.round(delta / this._private__barSpacing) + 1;
+                }
+            }
+            this._private__width = width;
+            this._private__visibleBarsInvalidated = true;
+            // updating bar spacing should be first because right offset depends on it
+            this._private__correctBarSpacing();
+            this._private__correctOffset();
+        };
+        TimeScale.prototype.indexToCoordinate = function (index) {
+            if (this.isEmpty() || !isInteger(index)) {
+                return 0;
+            }
+            var baseIndex = this.baseIndex();
+            var deltaFromRight = baseIndex + this._private__rightOffset - index;
+            var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing;
+            return coordinate;
+        };
+        TimeScale.prototype.indexesToCoordinates = function (points, visibleRange) {
+            var baseIndex = this.baseIndex();
+            var indexFrom = (visibleRange === undefined) ? 0 : visibleRange.from;
+            var indexTo = (visibleRange === undefined) ? points.length : visibleRange.to;
+            for (var i = indexFrom; i < indexTo; i++) {
+                var index = points[i].time;
+                var deltaFromRight = baseIndex + this._private__rightOffset - index;
+                var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing;
+                points[i].x = coordinate;
+            }
+        };
+        TimeScale.prototype.indexToUserTime = function (index) {
+            return this._private__tickMarks.indexToTime(index);
+        };
+        TimeScale.prototype.coordinateToIndex = function (x) {
+            return Math.ceil(this._private__coordinateToFloatIndex(x));
+        };
+        TimeScale.prototype.setRightOffset = function (offset) {
+            this._private__visibleBarsInvalidated = true;
+            this._private__rightOffset = offset;
+            this._private__correctOffset();
+            this._private__model.recalculateAllPanes();
+            this._private__model.lightUpdate();
+        };
+        TimeScale.prototype.barSpacing = function () {
+            return this._private__barSpacing;
+        };
+        TimeScale.prototype.setBarSpacing = function (newBarSpacing) {
+            this._private__setBarSpacing(newBarSpacing);
+            // do not allow scroll out of visible bars
+            this._private__correctOffset();
+            this._private__model.recalculateAllPanes();
+            this._private__model.lightUpdate();
+        };
+        TimeScale.prototype.rightOffset = function () {
+            return this._private__rightOffset;
+        };
+        TimeScale.prototype.marks = function () {
+            if (this.isEmpty()) {
+                return null;
+            }
+            if (this._private__timeMarksCache !== null) {
+                return this._private__timeMarksCache;
+            }
+            var spacing = this._private__barSpacing;
+            var fontSize = this._private__model.options().layout.fontSize;
+            var maxLabelWidth = (fontSize + 4) * 5;
+            var indexPerLabel = Math.round(maxLabelWidth / spacing);
+            var visibleBars = ensureNotNull(this.visibleBars());
+            var firstBar = Math.max(visibleBars.firstBar(), visibleBars.firstBar() - indexPerLabel);
+            var lastBar = Math.max(visibleBars.lastBar(), visibleBars.lastBar() - indexPerLabel);
+            var items = this._private__tickMarks.build(spacing, maxLabelWidth);
+            var targetIndex = 0;
+            for (var _i = 0, items_1 = items; _i < items_1.length; _i++) {
+                var tm = items_1[_i];
+                if (!(firstBar <= tm.index && tm.index <= lastBar)) {
+                    continue;
+                }
+                var time = this._private__tickMarks.indexToTime(tm.index);
+                if (time === null) {
+                    continue;
+                }
+                if (targetIndex < this._private__labels.length) {
+                    var label = this._private__labels[targetIndex];
+                    label.coord = this.indexToCoordinate(tm.index);
+                    label.label = this._private__formatLabel(time, tm.span);
+                    label.span = tm.span;
+                    label.major = false;
+                }
+                else {
+                    this._private__labels.push({
+                        coord: this.indexToCoordinate(tm.index),
+                        label: this._private__formatLabel(time, tm.span),
+                        span: tm.span,
+                        major: false,
+                    });
+                }
+                targetIndex++;
+            }
+            this._private__labels.length = targetIndex;
+            this._private__timeMarksCache = this._private__labels;
+            return this._private__labels;
+        };
+        TimeScale.prototype.reset = function () {
+            this._private__visibleBarsInvalidated = true;
+            this._private__points = new TimePoints();
+            this._private__scrollStartPoint = null;
+            this._private__scaleStartPoint = null;
+            this._private__clearCommonTransitionsStartState();
+            this._private__tickMarks.reset();
+            this._private__leftEdgeIndex = null;
+        };
+        TimeScale.prototype.restoreDefault = function () {
+            this._private__visibleBarsInvalidated = true;
+            this.setBarSpacing(this._private__options.barSpacing);
+            this.setRightOffset(this._private__options.rightOffset);
+        };
+        TimeScale.prototype.fixLeftEdge = function () {
+            return this._private__options.fixLeftEdge;
+        };
+        TimeScale.prototype.setBaseIndex = function (baseIndex) {
+            this._private__visibleBarsInvalidated = true;
+            this._private__baseIndexOrNull = baseIndex;
+            this._private__correctOffset();
+            this._private__fixLeftEdge();
+        };
+        /**
+         * Zoom in/out the scale around a `zoomPoint` on `scale` value.
+         * @param zoomPoint - X coordinate of the point to apply the zoom.
+         *   If `rightBarStaysOnScroll` option is disabled, then will be used to restore right offset.
+         * @param scale - Zoom value (in 1/10 parts of current bar spacing).
+         *   Negative value means zoom out, positive - zoom in.
+         */
+        TimeScale.prototype.zoom = function (zoomPoint, scale) {
+            var floatIndexAtZoomPoint = this._private__coordinateToFloatIndex(zoomPoint);
+            var barSpacing = this.barSpacing();
+            var newBarSpacing = barSpacing + scale * (barSpacing / 10);
+            // zoom in/out bar spacing
+            this.setBarSpacing(newBarSpacing);
+            if (!this._private__options.rightBarStaysOnScroll) {
+                // and then correct right offset to move index under zoomPoint back to its coordinate
+                this.setRightOffset(this.rightOffset() + (floatIndexAtZoomPoint - this._private__coordinateToFloatIndex(zoomPoint)));
+            }
+        };
+        TimeScale.prototype.startScale = function (x) {
+            if (this._private__scrollStartPoint) {
+                this.endScroll();
+            }
+            if (this._private__scaleStartPoint !== null || this._private__commonTransitionStartState !== null) {
+                return;
+            }
+            if (this.isEmpty()) {
+                return;
+            }
+            this._private__scaleStartPoint = x;
+            this._private__saveCommonTransitionsStartState();
+        };
+        TimeScale.prototype.scaleTo = function (x) {
+            if (this._private__commonTransitionStartState === null) {
+                return;
+            }
+            var startLengthFromRight = clamp(this._private__width - x, 0, this._private__width);
+            var currentLengthFromRight = clamp(this._private__width - ensureNotNull(this._private__scaleStartPoint), 0, this._private__width);
+            if (startLengthFromRight === 0 || currentLengthFromRight === 0) {
+                return;
+            }
+            this.setBarSpacing(this._private__commonTransitionStartState.barSpacing * startLengthFromRight / currentLengthFromRight);
+        };
+        TimeScale.prototype.endScale = function () {
+            if (this._private__scaleStartPoint === null) {
+                return;
+            }
+            this._private__scaleStartPoint = null;
+            this._private__clearCommonTransitionsStartState();
+        };
+        TimeScale.prototype.startScroll = function (x) {
+            if (this._private__scrollStartPoint !== null || this._private__commonTransitionStartState !== null) {
+                return;
+            }
+            if (this.isEmpty()) {
+                return;
+            }
+            this._private__scrollStartPoint = x;
+            this._private__saveCommonTransitionsStartState();
+        };
+        TimeScale.prototype.scrollTo = function (x) {
+            this._private__visibleBarsInvalidated = true;
+            if (this._private__scrollStartPoint === null) {
+                return;
+            }
+            var shiftInLogical = (this._private__scrollStartPoint - x) / this.barSpacing();
+            this._private__rightOffset = ensureNotNull(this._private__commonTransitionStartState).rightOffset + shiftInLogical;
+            this._private__visibleBarsInvalidated = true;
+            // do not allow scroll out of visible bars
+            this._private__correctOffset();
+        };
+        TimeScale.prototype.endScroll = function () {
+            if (this._private__scrollStartPoint === null) {
+                return;
+            }
+            this._private__scrollStartPoint = null;
+            this._private__clearCommonTransitionsStartState();
+        };
+        TimeScale.prototype.scrollToRealTime = function () {
+            this.scrollToOffsetAnimated(this._private__options.rightOffset);
+        };
+        TimeScale.prototype.scrollToOffsetAnimated = function (offset, animationDuration) {
+            var _this = this;
+            if (animationDuration === void 0) { animationDuration = 400 /* DefaultAnimationDuration */; }
+            if (!isFinite(offset)) {
+                throw new RangeError('offset is required and must be finite number');
+            }
+            if (!isFinite(animationDuration) || animationDuration <= 0) {
+                throw new RangeError('animationDuration (optional) must be finite positive number');
+            }
+            var source = this._private__rightOffset;
+            var animationStart = new Date().getTime();
+            var animationFn = function () {
+                var animationProgress = (new Date().getTime() - animationStart) / animationDuration;
+                var finishAnimation = animationProgress >= 1;
+                var rightOffset = finishAnimation ? offset : source + (offset - source) * animationProgress;
+                _this.setRightOffset(rightOffset);
+                if (!finishAnimation) {
+                    setTimeout(animationFn, 20);
+                }
+            };
+            animationFn();
+        };
+        TimeScale.prototype.update = function (index, values, marks) {
+            this._private__visibleBarsInvalidated = true;
+            if (values.length > 0) {
+                // we have some time points to merge
+                var oldSize = this._private__points.size();
+                this._private__points.merge(index, values);
+                if (this._private__rightOffset < 0 && (this._private__points.size() === oldSize + 1)) {
+                    this._private__rightOffset -= 1;
+                    this._private__visibleBarsInvalidated = true;
+                }
+            }
+            this._private__tickMarks.merge(marks);
+            this._private__correctOffset();
+        };
+        TimeScale.prototype.visibleBarsChanged = function () {
+            return this._private__visibleBarsChanged;
+        };
+        TimeScale.prototype.optionsApplied = function () {
+            return this._private__optionsApplied;
+        };
+        TimeScale.prototype.baseIndex = function () {
+            // null is used to known that baseIndex is not set yet
+            // so in methods which should known whether it is set or not
+            // we should check field `_baseIndexOrNull` instead of getter `baseIndex()`
+            // see minRightOffset for example
+            return this._private__baseIndexOrNull || 0;
+        };
+        TimeScale.prototype.setVisibleRange = function (range) {
+            var length = range.count();
+            this._private__setBarSpacing(this._private__width / length);
+            this._private__rightOffset = range.lastBar() - this.baseIndex();
+            this._private__correctOffset();
+            this._private__visibleBarsInvalidated = true;
+            this._private__model.recalculateAllPanes();
+            this._private__model.lightUpdate();
+        };
+        TimeScale.prototype.fitContent = function () {
+            var first = this._private__points.firstIndex();
+            var last = this._private__points.lastIndex();
+            if (first === null || last === null) {
+                return;
+            }
+            this.setVisibleRange(new BarsRange(first, last + this._private__options.rightOffset));
+        };
+        TimeScale.prototype.setTimePointsRange = function (range) {
+            var points = this.points();
+            var firstIndex = points.firstIndex();
+            var lastIndex = points.lastIndex();
+            if (firstIndex === null || lastIndex === null) {
+                return;
+            }
+            var firstPoint = ensureNotNull(points.valueAt(firstIndex)).timestamp;
+            var lastPoint = ensureNotNull(points.valueAt(lastIndex)).timestamp;
+            var barRange = new BarsRange(ensureNotNull(points.indexOf(Math.max(firstPoint, range.from.timestamp), true)), ensureNotNull(points.indexOf(Math.min(lastPoint, range.to.timestamp), true)));
+            this.setVisibleRange(barRange);
+        };
+        TimeScale.prototype.formatDateTime = function (time) {
+            if (this._private__localizationOptions.timeFormatter !== undefined) {
+                return this._private__localizationOptions.timeFormatter(time.businessDay || time.timestamp);
+            }
+            return this._private__dateTimeFormatter.format(new Date(time.timestamp * 1000));
+        };
+        TimeScale.prototype._private__rightOffsetForCoordinate = function (x) {
+            return (this._private__width + 1 - x) / this._private__barSpacing;
+        };
+        TimeScale.prototype._private__coordinateToFloatIndex = function (x) {
+            var deltaFromRight = this._private__rightOffsetForCoordinate(x);
+            var baseIndex = this.baseIndex();
+            var index = baseIndex + this._private__rightOffset - deltaFromRight;
+            // JavaScript uses very strange rounding
+            // we need rounding to avoid problems with calculation errors
+            return Math.round(index * 1000000) / 1000000;
+        };
+        TimeScale.prototype._private__setBarSpacing = function (newBarSpacing) {
+            var oldBarSpacing = this._private__barSpacing;
+            this._private__barSpacing = newBarSpacing;
+            this._private__correctBarSpacing();
+            // this._barSpacing might be changed in _correctBarSpacing
+            if (oldBarSpacing !== this._private__barSpacing) {
+                this._private__visibleBarsInvalidated = true;
+                this._private__resetTimeMarksCache();
+            }
+        };
+        TimeScale.prototype._private__updateVisibleBars = function () {
+            if (this.isEmpty()) {
+                this._private__setVisibleBars(null);
+                return;
+            }
+            var baseIndex = this.baseIndex();
+            var newBarsLength = Math.ceil(this._private__width / this._private__barSpacing) - 1;
+            var rightIndex = Math.round(this._private__rightOffset + baseIndex);
+            var leftIndex = rightIndex - newBarsLength;
+            this._private__setVisibleBars(new BarsRange(leftIndex, rightIndex));
+        };
+        TimeScale.prototype._private__correctBarSpacing = function () {
+            if (this._private__barSpacing < 0.5 /* MinBarSpacing */) {
+                this._private__barSpacing = 0.5 /* MinBarSpacing */;
+                this._private__visibleBarsInvalidated = true;
+            }
+            if (this._private__width !== 0) {
+                // make sure that this (1 / Constants.MinVisibleBarsCount) >= coeff in max bar spacing (it's 0.5 here)
+                var maxBarSpacing = this._private__width * 0.5;
+                if (this._private__barSpacing > maxBarSpacing) {
+                    this._private__barSpacing = maxBarSpacing;
+                    this._private__visibleBarsInvalidated = true;
+                }
+            }
+        };
+        TimeScale.prototype._private__correctOffset = function () {
+            // block scrolling of to future
+            var maxRightOffset = this._private__maxRightOffset();
+            if (this._private__rightOffset > maxRightOffset) {
+                this._private__rightOffset = maxRightOffset;
+                this._private__visibleBarsInvalidated = true;
+            }
+            // block scrolling of to past
+            var minRightOffset = this._private__minRightOffset();
+            if (minRightOffset !== null && this._private__rightOffset < minRightOffset) {
+                this._private__rightOffset = minRightOffset;
+                this._private__visibleBarsInvalidated = true;
+            }
+        };
+        TimeScale.prototype._private__minRightOffset = function () {
+            var firstIndex = this._private__points.firstIndex();
+            var baseIndex = this._private__baseIndexOrNull;
+            if (firstIndex === null || baseIndex === null) {
+                return null;
+            }
+            if (this._private__leftEdgeIndex !== null) {
+                var barsEstimation = this._private__width / this._private__barSpacing;
+                return this._private__leftEdgeIndex - baseIndex + barsEstimation - 1;
+            }
+            return firstIndex - baseIndex - 1 + Math.min(2 /* MinVisibleBarsCount */, this._private__points.size());
+        };
+        TimeScale.prototype._private__maxRightOffset = function () {
+            return (this._private__width / this._private__barSpacing) - Math.min(2 /* MinVisibleBarsCount */, this._private__points.size());
+        };
+        TimeScale.prototype._private__saveCommonTransitionsStartState = function () {
+            this._private__commonTransitionStartState = {
+                barSpacing: this.barSpacing(),
+                rightOffset: this.rightOffset(),
+            };
+        };
+        TimeScale.prototype._private__clearCommonTransitionsStartState = function () {
+            this._private__commonTransitionStartState = null;
+        };
+        TimeScale.prototype._private__formatLabel = function (time, span) {
+            var _this = this;
+            var formatter = this._private__formattedBySpan.get(span);
+            if (formatter === undefined) {
+                formatter = new FormattedLabelsCache(function (timePoint) {
+                    return _this._private__formatLabelImpl(timePoint, span);
+                });
+                this._private__formattedBySpan.set(span, formatter);
+            }
+            return formatter.format(time);
+        };
+        TimeScale.prototype._private__formatLabelImpl = function (timePoint, span) {
+            var tickMarkType;
+            var timeVisible = this._private__options.timeVisible;
+            if (span < 20 /* Minute */ && timeVisible) {
+                tickMarkType = this._private__options.secondsVisible ? 4 /* TimeWithSeconds */ : 3 /* Time */;
+            }
+            else if (span < 40 /* Day */ && timeVisible) {
+                tickMarkType = 3 /* Time */;
+            }
+            else if (span < 50 /* Week */) {
+                tickMarkType = 2 /* DayOfMonth */;
+            }
+            else if (span < 60 /* Month */) {
+                tickMarkType = 2 /* DayOfMonth */;
+            }
+            else if (span < 70 /* Year */) {
+                tickMarkType = 1 /* Month */;
+            }
+            else {
+                tickMarkType = 0 /* Year */;
+            }
+            return this._private__options.tickMarkFormatter(timePoint, tickMarkType, this._private__localizationOptions.locale);
+        };
+        TimeScale.prototype._private__setVisibleBars = function (visibleBars) {
+            if (visibleBars === null && this._private__visibleBars === null) {
+                return;
+            }
+            var oldVisibleBars = this._private__visibleBars;
+            this._private__visibleBars = visibleBars;
+            if (this._private__visibleBars === null || oldVisibleBars !== null && !this._private__visibleBars.equals(oldVisibleBars)) {
+                this._private__visibleBarsChanged.fire();
+            }
+            // TODO: reset only coords in case when this._visibleBars has not been changed
+            this._private__resetTimeMarksCache();
+        };
+        TimeScale.prototype._private__resetTimeMarksCache = function () {
+            this._private__timeMarksCache = null;
+        };
+        TimeScale.prototype._private__invalidateTickMarks = function () {
+            this._private__resetTimeMarksCache();
+            this._private__formattedBySpan.clear();
+        };
+        TimeScale.prototype._private__updateDateTimeFormatter = function () {
+            var dateFormat = this._private__localizationOptions.dateFormat;
+            if (this._private__options.timeVisible) {
+                this._private__dateTimeFormatter = new DateTimeFormatter({
+                    dateFormat: dateFormat,
+                    timeFormat: this._private__options.secondsVisible ? '%h:%m:%s' : '%h:%m',
+                    dateTimeSeparator: '   ',
+                    locale: this._private__localizationOptions.locale,
+                });
+            }
+            else {
+                this._private__dateTimeFormatter = new DateFormatter(dateFormat, this._private__localizationOptions.locale);
+            }
+        };
+        TimeScale.prototype._private__fixLeftEdge = function () {
+            if (!this._private__options.fixLeftEdge) {
+                return;
+            }
+            var firstIndex = this._private__points.firstIndex();
+            if (firstIndex === null || this._private__leftEdgeIndex === firstIndex) {
+                return;
+            }
+            this._private__leftEdgeIndex = firstIndex;
+            var delta = ensureNotNull(this.visibleBars()).firstBar() - firstIndex;
+            if (delta < 0) {
+                var leftEdgeOffset = this._private__rightOffset - delta - 1;
+                this.setRightOffset(leftEdgeOffset);
+            }
+        };
+        return TimeScale;
+    }());
+
     function isBusinessDay(time) {
         return !isNumber(time) && !isString(time);
     }
     function isUTCTimestamp(time) {
         return isNumber(time);
-    }
-
-    /**
-     * Default font family.
-     * Must be used to generate font string when font is not specified.
-     */
-    var defaultFontFamily = "'Trebuchet MS', Roboto, Ubuntu, sans-serif";
-    /**
-     * Generates a font string, which can be used to set in canvas' font property.
-     * If no family provided, [defaultFontFamily] will be used.
-     */
-    function makeFont(size, family, style) {
-        if (style !== undefined) {
-            style = style + " ";
-        }
-        else {
-            style = '';
-        }
-        if (family === undefined) {
-            family = defaultFontFamily;
-        }
-        return "" + style + size + "px " + family;
     }
 
     var RendererConstants;
@@ -5864,1054 +6960,6 @@
         return Pane;
     }());
 
-    var getMonth = function (date) { return date.getUTCMonth() + 1; };
-    var getDay = function (date) { return date.getUTCDate(); };
-    var getYear = function (date) { return date.getUTCFullYear(); };
-    var dd = function (date) { return numberToStringWithLeadingZero(getDay(date), 2); };
-    var MMMM = function (date, locale) { return new Date(date.getUTCFullYear(), date.getUTCMonth(), 1)
-        .toLocaleString(locale, { month: 'long' }); };
-    var MMM = function (date, locale) { return new Date(date.getUTCFullYear(), date.getUTCMonth(), 1)
-        .toLocaleString(locale, { month: 'short' }); };
-    var MM = function (date) { return numberToStringWithLeadingZero(getMonth(date), 2); };
-    var yy = function (date) { return numberToStringWithLeadingZero(getYear(date) % 100, 2); };
-    var yyyy = function (date) { return numberToStringWithLeadingZero(getYear(date), 4); };
-    /*
-     Map of date formatting functions
-     */
-    var dateFormatFunctions = {
-        '\'yy MMM dd': function (date, locale) { return "'" + yy(date) + " " + MMM(date, locale) + " " + dd(date); },
-        '\'yy MMMM dd': function (date, locale) { return "'" + yy(date) + " " + MMMM(date, locale) + " " + dd(date); },
-        'yyyy MMM dd': function (date, locale) { return yyyy(date) + " " + MMM(date, locale) + " " + dd(date); },
-        'yyyy MMMM dd': function (date, locale) { return yyyy(date) + " " + MMMM(date, locale) + " " + dd(date); },
-        'dd MMM \'yy': function (date, locale) { return dd(date) + " " + MMM(date, locale) + " '" + yy(date); },
-        'dd MMMM \'yy': function (date, locale) { return dd(date) + " " + MMMM(date, locale) + " '" + yy(date); },
-        'dd MMM yyyy': function (date, locale) { return dd(date) + " " + MMM(date, locale) + " " + yyyy(date); },
-        'dd MMMM yyyy': function (date, locale) { return dd(date) + " " + MMMM(date, locale) + " " + yyyy(date); },
-        'MMM dd, \'yy': function (date, locale) { return MMM(date, locale) + " " + dd(date) + ", '" + yy(date); },
-        'MMMM dd, \'yy': function (date, locale) { return MMMM(date, locale) + " " + dd(date) + ", '" + yy(date); },
-        'MMM dd, yyyy': function (date, locale) { return MMM(date, locale) + " " + dd(date) + ", " + yyyy(date); },
-        'MMMM dd, yyyy': function (date, locale) { return MMMM(date, locale) + " " + dd(date) + ", " + yyyy(date); },
-        'yyyy-MM-dd': function (date, locale) { return yyyy(date) + "-" + MM(date) + "-" + dd(date); },
-        'yy-MM-dd': function (date, locale) { return yy(date) + "-" + MM(date) + "-" + dd(date); },
-        'yy/MM/dd': function (date, locale) { return yy(date) + "/" + MM(date) + "/" + dd(date); },
-        'yyyy/MM/dd': function (date, locale) { return yyyy(date) + "/" + MM(date) + "/" + dd(date); },
-        'yy.MM.dd': function (date, locale) { return yy(date) + "." + MM(date) + "." + dd(date); },
-        'yyyy.MM.dd': function (date, locale) { return yyyy(date) + "." + MM(date) + "." + dd(date); },
-        'dd-MM-yyyy': function (date, locale) { return dd(date) + "-" + MM(date) + "-" + yyyy(date); },
-        'dd-MM-yy': function (date, locale) { return dd(date) + "-" + MM(date) + "-" + yy(date); },
-        'dd/MM/yy': function (date, locale) { return dd(date) + "/" + MM(date) + "/" + yy(date); },
-        'dd/MM/yyyy': function (date, locale) { return dd(date) + "/" + MM(date) + "/" + yyyy(date); },
-        'dd.MM.yy': function (date, locale) { return dd(date) + "." + MM(date) + "." + yy(date); },
-        'dd.MM.yyyy': function (date, locale) { return dd(date) + "." + MM(date) + "." + yyyy(date); },
-        'MM-dd-yy': function (date, locale) { return MM(date) + "-" + dd(date) + "-" + yy(date); },
-        'MM-dd-yyyy': function (date, locale) { return MM(date) + "-" + dd(date) + "-" + yyyy(date); },
-        'MM/dd/yy': function (date, locale) { return MM(date) + "/" + dd(date) + "/" + yy(date); },
-        'MM/dd/yyyy': function (date, locale) { return MM(date) + "/" + dd(date) + "/" + yyyy(date); },
-        'MM.dd.yy': function (date, locale) { return MM(date) + "." + dd(date) + "." + yy(date); },
-        'MM.dd.yyyy': function (date, locale) { return MM(date) + "." + dd(date) + "." + yyyy(date); },
-    };
-
-    var DateFormatter = /** @class */ (function () {
-        function DateFormatter(dateFormat, locale) {
-            if (dateFormat === void 0) { dateFormat = 'yyyy-MM-dd'; }
-            if (locale === void 0) { locale = 'default'; }
-            this._private__dateFormatFunc = dateFormatFunctions[dateFormat];
-            this._private__locale = locale;
-        }
-        DateFormatter.prototype.format = function (date) {
-            return this._private__dateFormatFunc(date, this._private__locale);
-        };
-        return DateFormatter;
-    }());
-
-    var TimeFormatter = /** @class */ (function () {
-        function TimeFormatter(format) {
-            this._private__formatStr = format || '%h:%m:%s';
-        }
-        TimeFormatter.prototype.format = function (date) {
-            return this._private__formatStr.replace('%h', numberToStringWithLeadingZero(date.getUTCHours(), 2)).
-                replace('%m', numberToStringWithLeadingZero(date.getUTCMinutes(), 2)).
-                replace('%s', numberToStringWithLeadingZero(date.getUTCSeconds(), 2));
-        };
-        return TimeFormatter;
-    }());
-
-    var defaultParams = {
-        dateFormat: 'yyyy-MM-dd',
-        timeFormat: '%h:%m:%s',
-        dateTimeSeparator: ' ',
-        locale: 'default',
-    };
-    var DateTimeFormatter = /** @class */ (function () {
-        function DateTimeFormatter(params) {
-            if (params === void 0) { params = {}; }
-            var formatterParams = __assign(__assign({}, defaultParams), params);
-            this._private__dateFormatter = new DateFormatter(formatterParams.dateFormat, formatterParams.locale);
-            this._private__timeFormatter = new TimeFormatter(formatterParams.timeFormat);
-            this._private__separator = formatterParams.dateTimeSeparator;
-        }
-        DateTimeFormatter.prototype.format = function (dateTime) {
-            return "" + this._private__dateFormatter.format(dateTime) + this._private__separator + this._private__timeFormatter.format(dateTime);
-        };
-        return DateTimeFormatter;
-    }());
-
-    var BarsRange = /** @class */ (function () {
-        function BarsRange(firstBar, lastBar) {
-            assert(firstBar <= lastBar, 'The last bar in the bars range should be greater than or equal to the first bar');
-            this._private__firstBar = firstBar;
-            this._private__lastBar = lastBar;
-        }
-        BarsRange.prototype.firstBar = function () {
-            return this._private__firstBar;
-        };
-        BarsRange.prototype.lastBar = function () {
-            return this._private__lastBar;
-        };
-        BarsRange.prototype.count = function () {
-            return this._private__lastBar - this._private__firstBar + 1;
-        };
-        BarsRange.prototype.contains = function (index) {
-            return this._private__firstBar <= index && index <= this._private__lastBar;
-        };
-        BarsRange.prototype.equals = function (other) {
-            return this._private__firstBar === other.firstBar() && this._private__lastBar === other.lastBar();
-        };
-        return BarsRange;
-    }());
-
-    var FormattedLabelsCache = /** @class */ (function () {
-        function FormattedLabelsCache(format, size) {
-            if (size === void 0) { size = 50; }
-            this._private__actualSize = 0;
-            this._private__usageTick = 1;
-            this._private__oldestTick = 1;
-            this._private__cache = new Map();
-            this._private__tick2Labels = new Map();
-            this._private__format = format;
-            this._private__maxSize = size;
-        }
-        FormattedLabelsCache.prototype.format = function (value) {
-            var tick = this._private__cache.get(value.valueOf());
-            if (tick !== undefined) {
-                return tick.string;
-            }
-            if (this._private__actualSize === this._private__maxSize) {
-                var oldestValue = this._private__tick2Labels.get(this._private__oldestTick);
-                this._private__tick2Labels.delete(this._private__oldestTick);
-                this._private__cache.delete(ensureDefined(oldestValue));
-                this._private__oldestTick++;
-                this._private__actualSize--;
-            }
-            var str = this._private__format(value);
-            this._private__cache.set(value.valueOf(), { string: str, tick: this._private__usageTick });
-            this._private__tick2Labels.set(this._private__usageTick, value.valueOf());
-            this._private__actualSize++;
-            this._private__usageTick++;
-            return str;
-        };
-        return FormattedLabelsCache;
-    }());
-
-    function sortByIndexAsc(a, b) {
-        return a.index - b.index;
-    }
-    var TickMarks = /** @class */ (function () {
-        function TickMarks() {
-            this._private__minIndex = Infinity;
-            this._private__maxIndex = -Infinity;
-            // Hash of tick marks
-            this._private__marksByIndex = new Map();
-            // Sparse array with ordered arrays of tick marks
-            this._private__marksBySpan = [];
-            this._private__changed = new Delegate();
-            this._private__cache = null;
-            this._private__maxBar = NaN;
-        }
-        TickMarks.prototype.reset = function () {
-            this._private__marksByIndex.clear();
-            this._private__marksBySpan = [];
-            this._private__minIndex = Infinity;
-            this._private__maxIndex = -Infinity;
-            this._private__cache = null;
-            this._private__changed.fire();
-        };
-        // tslint:disable-next-line:cyclomatic-complexity
-        TickMarks.prototype.merge = function (tickMarks) {
-            var marksBySpan = this._private__marksBySpan;
-            var unsortedSpans = {};
-            for (var _i = 0, tickMarks_1 = tickMarks; _i < tickMarks_1.length; _i++) {
-                var tickMark = tickMarks_1[_i];
-                var index = tickMark.index;
-                var span = tickMark.span;
-                var existingTickMark = this._private__marksByIndex.get(tickMark.index);
-                if (existingTickMark) {
-                    if (existingTickMark.index === tickMark.index && existingTickMark.span === tickMark.span) {
-                        // We don't need to do anything, just update time (if it differs)
-                        existingTickMark.time = tickMark.time;
-                        continue;
-                    }
-                    // TickMark exists, but it differs. We need to remove it first
-                    this._private__removeTickMark(existingTickMark);
-                }
-                // Set into hash
-                this._private__marksByIndex.set(index, tickMark);
-                if (this._private__minIndex > index) { // It's not the same as `this.minIndex > index`, mind the NaN
-                    this._private__minIndex = index;
-                }
-                if (this._private__maxIndex < index) {
-                    this._private__maxIndex = index;
-                }
-                // Store it in span arrays
-                var marks = marksBySpan[span];
-                if (marks === undefined) {
-                    marks = [];
-                    marksBySpan[span] = marks;
-                }
-                marks.push(tickMark);
-                unsortedSpans[span] = true;
-            }
-            // Clean up and sort arrays
-            for (var span = marksBySpan.length; span--;) {
-                var marks = marksBySpan[span];
-                if (marks === undefined) {
-                    continue;
-                }
-                if (marks.length === 0) {
-                    delete marksBySpan[span];
-                }
-                if (unsortedSpans[span]) {
-                    marks.sort(sortByIndexAsc);
-                }
-            }
-            this._private__cache = null;
-            this._private__changed.fire();
-        };
-        TickMarks.prototype.indexToTime = function (index) {
-            var tickMark = this._private__marksByIndex.get(index);
-            if (tickMark === undefined) {
-                return null;
-            }
-            return tickMark.time;
-        };
-        TickMarks.prototype.nearestIndex = function (time) {
-            var left = this._private__minIndex;
-            var right = this._private__maxIndex;
-            while (right - left > 2) {
-                if (ensureDefined(this._private__marksByIndex.get(left)).time.timestamp * 1000 === time) {
-                    return left;
-                }
-                if (ensureDefined(this._private__marksByIndex.get(right)).time.timestamp * 1000 === time) {
-                    return right;
-                }
-                var center = Math.round((left + right) / 2);
-                if (ensureDefined(this._private__marksByIndex.get(center)).time.timestamp * 1000 > time) {
-                    right = center;
-                }
-                else {
-                    left = center;
-                }
-            }
-            return left;
-        };
-        TickMarks.prototype.build = function (spacing, maxWidth) {
-            var maxBar = Math.ceil(maxWidth / spacing);
-            if (this._private__maxBar === maxBar && this._private__cache) {
-                return this._private__cache;
-            }
-            this._private__maxBar = maxBar;
-            var marks = [];
-            for (var span = this._private__marksBySpan.length; span--;) {
-                if (!this._private__marksBySpan[span]) {
-                    continue;
-                }
-                // Built tickMarks are now prevMarks, and marks it as new array
-                var prevMarks = marks;
-                marks = [];
-                var prevMarksLength = prevMarks.length;
-                var prevMarksPointer = 0;
-                var currentSpan = ensureDefined(this._private__marksBySpan[span]);
-                var currentSpanLength = currentSpan.length;
-                var rightIndex = Infinity;
-                var leftIndex = -Infinity;
-                for (var i = 0; i < currentSpanLength; i++) {
-                    var mark = currentSpan[i];
-                    var currentIndex = mark.index;
-                    // Determine indexes with which current index will be compared
-                    // All marks to the right is moved to new array
-                    while (prevMarksPointer < prevMarksLength) {
-                        var lastMark = prevMarks[prevMarksPointer];
-                        var lastIndex = lastMark.index;
-                        if (lastIndex < currentIndex) {
-                            prevMarksPointer++;
-                            marks.push(lastMark);
-                            leftIndex = lastIndex;
-                            rightIndex = Infinity;
-                        }
-                        else {
-                            rightIndex = lastIndex;
-                            break;
-                        }
-                    }
-                    if (rightIndex - currentIndex >= maxBar && currentIndex - leftIndex >= maxBar) {
-                        // TickMark fits. Place it into new array
-                        marks.push(mark);
-                        leftIndex = currentIndex;
-                    }
-                }
-                // Place all unused tickMarks into new array;
-                for (; prevMarksPointer < prevMarksLength; prevMarksPointer++) {
-                    marks.push(prevMarks[prevMarksPointer]);
-                }
-            }
-            this._private__cache = marks;
-            return this._private__cache;
-        };
-        TickMarks.prototype._private__removeTickMark = function (tickMark) {
-            var index = tickMark.index;
-            if (this._private__marksByIndex.get(index) !== tickMark) {
-                return;
-            }
-            this._private__marksByIndex.delete(index);
-            if (index <= this._private__minIndex) {
-                this._private__minIndex++;
-            }
-            if (index >= this._private__maxIndex) {
-                this._private__maxIndex--;
-            }
-            if (this._private__maxIndex < this._private__minIndex) {
-                this._private__minIndex = Infinity;
-                this._private__maxIndex = -Infinity;
-            }
-            var spanArray = ensureDefined(this._private__marksBySpan[tickMark.span]);
-            var position = spanArray.indexOf(tickMark);
-            if (position !== -1) {
-                // Keeps array sorted
-                spanArray.splice(position, 1);
-            }
-        };
-        return TickMarks;
-    }());
-
-    /**
-     * This is the collection of time points, that allows to store and find the every time point using it's index.
-     */
-    var TimePoints = /** @class */ (function () {
-        function TimePoints() {
-            this._private__items = [];
-        }
-        TimePoints.prototype.clear = function () {
-            this._private__items = [];
-        };
-        TimePoints.prototype.size = function () {
-            return this._private__items.length;
-        };
-        TimePoints.prototype.firstIndex = function () {
-            return this._private__offsetToIndex(0);
-        };
-        TimePoints.prototype.lastIndex = function () {
-            return this._private__offsetToIndex(this._private__items.length - 1);
-        };
-        TimePoints.prototype.merge = function (index, values) {
-            if (values.length === 0) {
-                return;
-            }
-            // assume that 'values' contains at least one TimePoint
-            if (this._private__items.length === 0) {
-                this._private__items = values;
-                return;
-            }
-            var start = index;
-            if (start < 0) {
-                var n = Math.abs(start);
-                if (values.length < n) {
-                    return;
-                }
-                // tslint:disable-next-line:prefer-array-literal
-                this._private__items = new Array(n).concat(this._private__items);
-                // tslint:disable-next-line:no-shadowed-variable
-                for (var i_1 = 0; i_1 < values.length; ++i_1) {
-                    this._private__items[index + i_1] = values[i_1];
-                }
-                return;
-            }
-            var i = start;
-            for (; i < this._private__items.length && (i - start) < values.length; ++i) {
-                this._private__items[i] = values[i - start];
-            }
-            var end = start + values.length;
-            if (end > this._private__items.length) {
-                var n = end - this._private__items.length;
-                for (var j = i; j < i + n; ++j) {
-                    this._private__items.push(values[j - start]);
-                }
-            }
-        };
-        TimePoints.prototype.valueAt = function (index) {
-            var offset = this._private__indexToOffset(index);
-            if (offset !== null) {
-                return this._private__items[offset];
-            }
-            return null;
-        };
-        TimePoints.prototype.indexOf = function (time, findNearest) {
-            if (this._private__items.length < 1) {
-                // no time points available
-                return null;
-            }
-            if (time > this._private__items[this._private__items.length - 1].timestamp) {
-                // special case
-                return findNearest ? this._private__items.length - 1 : null;
-            }
-            for (var i = 0; i < this._private__items.length; ++i) {
-                if (time === this._private__items[i].timestamp) {
-                    return i;
-                }
-                if (time < this._private__items[i].timestamp) {
-                    return findNearest ? i : null;
-                }
-            }
-            // in fact, this code is unreachable because we already
-            // have special case for time > this._items[this._items.length - 1]
-            return null;
-        };
-        TimePoints.prototype.closestIndexLeft = function (time) {
-            var items = this._private__items;
-            if (!items.length) {
-                return null;
-            }
-            if (Number.isNaN(time.timestamp)) {
-                return null;
-            }
-            var maxOffset = items.length - 1;
-            var maxTime = items[maxOffset];
-            if (time >= maxTime) {
-                return maxOffset;
-            }
-            var minOffset = 0;
-            var minTime = items[minOffset];
-            if (time < minTime) {
-                return null;
-            }
-            else if (time === minTime) {
-                return minOffset;
-            }
-            // binary search
-            while (maxOffset > minOffset + 1) {
-                var testOffset = (minOffset + maxOffset) >> 1;
-                var testValue = items[testOffset];
-                if (testValue.timestamp > time.timestamp) {
-                    maxOffset = testOffset;
-                }
-                else if (testValue.timestamp < time.timestamp) {
-                    minOffset = testOffset;
-                }
-                else if (testValue.timestamp === time.timestamp) {
-                    return testOffset;
-                }
-                else {
-                    return null;
-                }
-            }
-            return minOffset;
-        };
-        TimePoints.prototype._private__offsetToIndex = function (offset) {
-            if (0 <= offset && offset < this.size()) {
-                return offset;
-            }
-            return null;
-        };
-        TimePoints.prototype._private__indexToOffset = function (index) {
-            if (0 <= index && index < this.size()) {
-                return index;
-            }
-            return null;
-        };
-        return TimePoints;
-    }());
-
-    var Constants$3;
-    (function (Constants) {
-        Constants[Constants["DefaultAnimationDuration"] = 400] = "DefaultAnimationDuration";
-        Constants[Constants["MinBarSpacing"] = 0.5] = "MinBarSpacing";
-        // make sure that this (1 / MinVisibleBarsCount) >= coeff in max bar spacing
-        Constants[Constants["MinVisibleBarsCount"] = 2] = "MinVisibleBarsCount";
-    })(Constants$3 || (Constants$3 = {}));
-    var MarkSpanBorder;
-    (function (MarkSpanBorder) {
-        MarkSpanBorder[MarkSpanBorder["Minute"] = 20] = "Minute";
-        MarkSpanBorder[MarkSpanBorder["Hour"] = 30] = "Hour";
-        MarkSpanBorder[MarkSpanBorder["Day"] = 40] = "Day";
-        MarkSpanBorder[MarkSpanBorder["Week"] = 50] = "Week";
-        MarkSpanBorder[MarkSpanBorder["Month"] = 60] = "Month";
-        MarkSpanBorder[MarkSpanBorder["Year"] = 70] = "Year";
-    })(MarkSpanBorder || (MarkSpanBorder = {}));
-    var TimeScale = /** @class */ (function () {
-        function TimeScale(model, options, localizationOptions) {
-            this._private__width = 0;
-            this._private__baseIndexOrNull = null;
-            this._private__points = new TimePoints();
-            this._private__scrollStartPoint = null;
-            this._private__scaleStartPoint = null;
-            this._private__tickMarks = new TickMarks();
-            this._private__formattedBySpan = new Map();
-            this._private__visibleBars = null;
-            this._private__visibleBarsInvalidated = true;
-            this._private__visibleBarsChanged = new Delegate();
-            this._private__optionsApplied = new Delegate();
-            this._private__leftEdgeIndex = null;
-            this._private__commonTransitionStartState = null;
-            this._private__timeMarksCache = null;
-            this._private__labels = [];
-            this._private__options = options;
-            this._private__localizationOptions = localizationOptions;
-            this._private__rightOffset = options.rightOffset;
-            this._private__barSpacing = options.barSpacing;
-            this._private__model = model;
-            this._private__updateDateTimeFormatter();
-        }
-        TimeScale.prototype.options = function () {
-            return this._private__options;
-        };
-        TimeScale.prototype.applyLocalizationOptions = function (localizationOptions) {
-            merge(this._private__localizationOptions, localizationOptions);
-            this._private__invalidateTickMarks();
-            this._private__updateDateTimeFormatter();
-        };
-        TimeScale.prototype.applyOptions = function (options, localizationOptions) {
-            merge(this._private__options, options);
-            if (this._private__options.fixLeftEdge) {
-                this._private__fixLeftEdge();
-            }
-            else {
-                this._private__leftEdgeIndex = null;
-            }
-            // note that bar spacing should be applied before right offset
-            // because right offset depends on bar spacing
-            if (options.barSpacing !== undefined) {
-                this.setBarSpacing(options.barSpacing);
-            }
-            if (options.rightOffset !== undefined) {
-                this.setRightOffset(options.rightOffset);
-            }
-            this._private__invalidateTickMarks();
-            this._private__updateDateTimeFormatter();
-            this._private__optionsApplied.fire();
-        };
-        TimeScale.prototype.isEmpty = function () {
-            return this._private__width === 0 || this._private__points.size() === 0;
-        };
-        TimeScale.prototype.visibleBars = function () {
-            if (this._private__visibleBarsInvalidated) {
-                this._private__visibleBarsInvalidated = false;
-                this._private__updateVisibleBars();
-            }
-            return this._private__visibleBars;
-        };
-        TimeScale.prototype.tickMarks = function () {
-            return this._private__tickMarks;
-        };
-        TimeScale.prototype.points = function () {
-            return this._private__points;
-        };
-        TimeScale.prototype.width = function () {
-            return this._private__width;
-        };
-        TimeScale.prototype.setWidth = function (width) {
-            if (!isFinite(width) || width <= 0) {
-                return;
-            }
-            if (this._private__width === width) {
-                return;
-            }
-            if (this._private__options.lockVisibleTimeRangeOnResize && this._private__width) {
-                // recalculate bar spacing
-                var newBarSpacing = this._private__barSpacing * width / this._private__width;
-                this._private__setBarSpacing(newBarSpacing);
-            }
-            // if time scale is scrolled to the end of data and we have fixed right edge
-            // keep left edge instead of right
-            // we need it to avoid "shaking" if the last bar visibility affects time scale width
-            if (this._private__leftEdgeIndex !== null) {
-                var firstVisibleBar = ensureNotNull(this.visibleBars()).firstBar();
-                // firstVisibleBar could be less than this._leftEdgeIndex
-                // since index is a center of bar
-                if (firstVisibleBar <= this._private__leftEdgeIndex) {
-                    var delta = this._private__width - width;
-                    // reduce  _rightOffset means move right
-                    // we could move more than required - this will be fixed by _correctOffset()
-                    this._private__rightOffset -= Math.round(delta / this._private__barSpacing) + 1;
-                }
-            }
-            this._private__width = width;
-            this._private__visibleBarsInvalidated = true;
-            // updating bar spacing should be first because right offset depends on it
-            this._private__correctBarSpacing();
-            this._private__correctOffset();
-        };
-        TimeScale.prototype.indexToCoordinate = function (index) {
-            if (this.isEmpty() || !isInteger(index)) {
-                return 0;
-            }
-            var baseIndex = this.baseIndex();
-            var deltaFromRight = baseIndex + this._private__rightOffset - index;
-            var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing;
-            return coordinate;
-        };
-        TimeScale.prototype.indexesToCoordinates = function (points, visibleRange) {
-            var baseIndex = this.baseIndex();
-            var indexFrom = (visibleRange === undefined) ? 0 : visibleRange.from;
-            var indexTo = (visibleRange === undefined) ? points.length : visibleRange.to;
-            for (var i = indexFrom; i < indexTo; i++) {
-                var index = points[i].time;
-                var deltaFromRight = baseIndex + this._private__rightOffset - index;
-                var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing;
-                points[i].x = coordinate;
-            }
-        };
-        TimeScale.prototype.indexToUserTime = function (index) {
-            return this._private__tickMarks.indexToTime(index);
-        };
-        TimeScale.prototype.coordinateToIndex = function (x) {
-            return Math.ceil(this._private__coordinateToFloatIndex(x));
-        };
-        TimeScale.prototype.setRightOffset = function (offset) {
-            this._private__visibleBarsInvalidated = true;
-            this._private__rightOffset = offset;
-            this._private__correctOffset();
-            this._private__model.recalculateAllPanes();
-            this._private__model.lightUpdate();
-        };
-        TimeScale.prototype.barSpacing = function () {
-            return this._private__barSpacing;
-        };
-        TimeScale.prototype.setBarSpacing = function (newBarSpacing) {
-            this._private__setBarSpacing(newBarSpacing);
-            // do not allow scroll out of visible bars
-            this._private__correctOffset();
-            this._private__model.recalculateAllPanes();
-            this._private__model.lightUpdate();
-        };
-        TimeScale.prototype.rightOffset = function () {
-            return this._private__rightOffset;
-        };
-        TimeScale.prototype.marks = function () {
-            if (this.isEmpty()) {
-                return null;
-            }
-            if (this._private__timeMarksCache !== null) {
-                return this._private__timeMarksCache;
-            }
-            var spacing = this._private__barSpacing;
-            var fontSize = this._private__model.options().layout.fontSize;
-            var maxLabelWidth = (fontSize + 4) * 5;
-            var indexPerLabel = Math.round(maxLabelWidth / spacing);
-            var visibleBars = ensureNotNull(this.visibleBars());
-            var firstBar = Math.max(visibleBars.firstBar(), visibleBars.firstBar() - indexPerLabel);
-            var lastBar = Math.max(visibleBars.lastBar(), visibleBars.lastBar() - indexPerLabel);
-            var items = this._private__tickMarks.build(spacing, maxLabelWidth);
-            var targetIndex = 0;
-            for (var _i = 0, items_1 = items; _i < items_1.length; _i++) {
-                var tm = items_1[_i];
-                if (!(firstBar <= tm.index && tm.index <= lastBar)) {
-                    continue;
-                }
-                var time = this._private__tickMarks.indexToTime(tm.index);
-                if (time === null) {
-                    continue;
-                }
-                if (targetIndex < this._private__labels.length) {
-                    var label = this._private__labels[targetIndex];
-                    label.coord = this.indexToCoordinate(tm.index);
-                    label.label = this._private__formatLabel(time, tm.span);
-                    label.span = tm.span;
-                    label.major = false;
-                }
-                else {
-                    this._private__labels.push({
-                        coord: this.indexToCoordinate(tm.index),
-                        label: this._private__formatLabel(time, tm.span),
-                        span: tm.span,
-                        major: false,
-                    });
-                }
-                targetIndex++;
-            }
-            this._private__labels.length = targetIndex;
-            this._private__timeMarksCache = this._private__labels;
-            return this._private__labels;
-        };
-        TimeScale.prototype.reset = function () {
-            this._private__visibleBarsInvalidated = true;
-            this._private__points = new TimePoints();
-            this._private__scrollStartPoint = null;
-            this._private__scaleStartPoint = null;
-            this._private__clearCommonTransitionsStartState();
-            this._private__tickMarks.reset();
-            this._private__leftEdgeIndex = null;
-        };
-        TimeScale.prototype.restoreDefault = function () {
-            this._private__visibleBarsInvalidated = true;
-            this.setBarSpacing(this._private__options.barSpacing);
-            this.setRightOffset(this._private__options.rightOffset);
-        };
-        TimeScale.prototype.fixLeftEdge = function () {
-            return this._private__options.fixLeftEdge;
-        };
-        TimeScale.prototype.setBaseIndex = function (baseIndex) {
-            this._private__visibleBarsInvalidated = true;
-            this._private__baseIndexOrNull = baseIndex;
-            this._private__correctOffset();
-            this._private__fixLeftEdge();
-        };
-        /**
-         * Zoom in/out the scale around a `zoomPoint` on `scale` value.
-         * @param zoomPoint - X coordinate of the point to apply the zoom.
-         *   If `rightBarStaysOnScroll` option is disabled, then will be used to restore right offset.
-         * @param scale - Zoom value (in 1/10 parts of current bar spacing).
-         *   Negative value means zoom out, positive - zoom in.
-         */
-        TimeScale.prototype.zoom = function (zoomPoint, scale) {
-            var floatIndexAtZoomPoint = this._private__coordinateToFloatIndex(zoomPoint);
-            var barSpacing = this.barSpacing();
-            var newBarSpacing = barSpacing + scale * (barSpacing / 10);
-            // zoom in/out bar spacing
-            this.setBarSpacing(newBarSpacing);
-            if (!this._private__options.rightBarStaysOnScroll) {
-                // and then correct right offset to move index under zoomPoint back to its coordinate
-                this.setRightOffset(this.rightOffset() + (floatIndexAtZoomPoint - this._private__coordinateToFloatIndex(zoomPoint)));
-            }
-        };
-        TimeScale.prototype.startScale = function (x) {
-            if (this._private__scrollStartPoint) {
-                this.endScroll();
-            }
-            if (this._private__scaleStartPoint !== null || this._private__commonTransitionStartState !== null) {
-                return;
-            }
-            if (this.isEmpty()) {
-                return;
-            }
-            this._private__scaleStartPoint = x;
-            this._private__saveCommonTransitionsStartState();
-        };
-        TimeScale.prototype.scaleTo = function (x) {
-            if (this._private__commonTransitionStartState === null) {
-                return;
-            }
-            var startLengthFromRight = clamp(this._private__width - x, 0, this._private__width);
-            var currentLengthFromRight = clamp(this._private__width - ensureNotNull(this._private__scaleStartPoint), 0, this._private__width);
-            if (startLengthFromRight === 0 || currentLengthFromRight === 0) {
-                return;
-            }
-            this.setBarSpacing(this._private__commonTransitionStartState.barSpacing * startLengthFromRight / currentLengthFromRight);
-        };
-        TimeScale.prototype.endScale = function () {
-            if (this._private__scaleStartPoint === null) {
-                return;
-            }
-            this._private__scaleStartPoint = null;
-            this._private__clearCommonTransitionsStartState();
-        };
-        TimeScale.prototype.startScroll = function (x) {
-            if (this._private__scrollStartPoint !== null || this._private__commonTransitionStartState !== null) {
-                return;
-            }
-            if (this.isEmpty()) {
-                return;
-            }
-            this._private__scrollStartPoint = x;
-            this._private__saveCommonTransitionsStartState();
-        };
-        TimeScale.prototype.scrollTo = function (x) {
-            this._private__visibleBarsInvalidated = true;
-            if (this._private__scrollStartPoint === null) {
-                return;
-            }
-            var shiftInLogical = (this._private__scrollStartPoint - x) / this.barSpacing();
-            this._private__rightOffset = ensureNotNull(this._private__commonTransitionStartState).rightOffset + shiftInLogical;
-            this._private__visibleBarsInvalidated = true;
-            // do not allow scroll out of visible bars
-            this._private__correctOffset();
-        };
-        TimeScale.prototype.endScroll = function () {
-            if (this._private__scrollStartPoint === null) {
-                return;
-            }
-            this._private__scrollStartPoint = null;
-            this._private__clearCommonTransitionsStartState();
-        };
-        TimeScale.prototype.scrollToRealTime = function () {
-            this.scrollToOffsetAnimated(this._private__options.rightOffset);
-        };
-        TimeScale.prototype.scrollToOffsetAnimated = function (offset, animationDuration) {
-            var _this = this;
-            if (animationDuration === void 0) { animationDuration = 400 /* DefaultAnimationDuration */; }
-            if (!isFinite(offset)) {
-                throw new RangeError('offset is required and must be finite number');
-            }
-            if (!isFinite(animationDuration) || animationDuration <= 0) {
-                throw new RangeError('animationDuration (optional) must be finite positive number');
-            }
-            var source = this._private__rightOffset;
-            var animationStart = new Date().getTime();
-            var animationFn = function () {
-                var animationProgress = (new Date().getTime() - animationStart) / animationDuration;
-                var finishAnimation = animationProgress >= 1;
-                var rightOffset = finishAnimation ? offset : source + (offset - source) * animationProgress;
-                _this.setRightOffset(rightOffset);
-                if (!finishAnimation) {
-                    setTimeout(animationFn, 20);
-                }
-            };
-            animationFn();
-        };
-        TimeScale.prototype.update = function (index, values, marks) {
-            this._private__visibleBarsInvalidated = true;
-            if (values.length > 0) {
-                // we have some time points to merge
-                var oldSize = this._private__points.size();
-                this._private__points.merge(index, values);
-                if (this._private__rightOffset < 0 && (this._private__points.size() === oldSize + 1)) {
-                    this._private__rightOffset -= 1;
-                    this._private__visibleBarsInvalidated = true;
-                }
-            }
-            this._private__tickMarks.merge(marks);
-            this._private__correctOffset();
-        };
-        TimeScale.prototype.visibleBarsChanged = function () {
-            return this._private__visibleBarsChanged;
-        };
-        TimeScale.prototype.optionsApplied = function () {
-            return this._private__optionsApplied;
-        };
-        TimeScale.prototype.baseIndex = function () {
-            // null is used to known that baseIndex is not set yet
-            // so in methods which should known whether it is set or not
-            // we should check field `_baseIndexOrNull` instead of getter `baseIndex()`
-            // see minRightOffset for example
-            return this._private__baseIndexOrNull || 0;
-        };
-        TimeScale.prototype.setVisibleRange = function (range) {
-            var length = range.count();
-            this._private__setBarSpacing(this._private__width / length);
-            this._private__rightOffset = range.lastBar() - this.baseIndex();
-            this._private__correctOffset();
-            this._private__visibleBarsInvalidated = true;
-            this._private__model.recalculateAllPanes();
-            this._private__model.lightUpdate();
-        };
-        TimeScale.prototype.fitContent = function () {
-            var first = this._private__points.firstIndex();
-            var last = this._private__points.lastIndex();
-            if (first === null || last === null) {
-                return;
-            }
-            this.setVisibleRange(new BarsRange(first, last + this._private__options.rightOffset));
-        };
-        TimeScale.prototype.setTimePointsRange = function (range) {
-            var points = this.points();
-            var firstIndex = points.firstIndex();
-            var lastIndex = points.lastIndex();
-            if (firstIndex === null || lastIndex === null) {
-                return;
-            }
-            var firstPoint = ensureNotNull(points.valueAt(firstIndex)).timestamp;
-            var lastPoint = ensureNotNull(points.valueAt(lastIndex)).timestamp;
-            var barRange = new BarsRange(ensureNotNull(points.indexOf(Math.max(firstPoint, range.from.timestamp), true)), ensureNotNull(points.indexOf(Math.min(lastPoint, range.to.timestamp), true)));
-            this.setVisibleRange(barRange);
-        };
-        TimeScale.prototype.formatDateTime = function (time) {
-            if (this._private__localizationOptions.timeFormatter !== undefined) {
-                return this._private__localizationOptions.timeFormatter(time.businessDay || time.timestamp);
-            }
-            return this._private__dateTimeFormatter.format(new Date(time.timestamp * 1000));
-        };
-        TimeScale.prototype._private__rightOffsetForCoordinate = function (x) {
-            return (this._private__width + 1 - x) / this._private__barSpacing;
-        };
-        TimeScale.prototype._private__coordinateToFloatIndex = function (x) {
-            var deltaFromRight = this._private__rightOffsetForCoordinate(x);
-            var baseIndex = this.baseIndex();
-            var index = baseIndex + this._private__rightOffset - deltaFromRight;
-            // JavaScript uses very strange rounding
-            // we need rounding to avoid problems with calculation errors
-            return Math.round(index * 1000000) / 1000000;
-        };
-        TimeScale.prototype._private__setBarSpacing = function (newBarSpacing) {
-            var oldBarSpacing = this._private__barSpacing;
-            this._private__barSpacing = newBarSpacing;
-            this._private__correctBarSpacing();
-            // this._barSpacing might be changed in _correctBarSpacing
-            if (oldBarSpacing !== this._private__barSpacing) {
-                this._private__visibleBarsInvalidated = true;
-                this._private__resetTimeMarksCache();
-            }
-        };
-        TimeScale.prototype._private__updateVisibleBars = function () {
-            if (this.isEmpty()) {
-                this._private__setVisibleBars(null);
-                return;
-            }
-            var baseIndex = this.baseIndex();
-            var newBarsLength = Math.ceil(this._private__width / this._private__barSpacing) - 1;
-            var rightIndex = Math.round(this._private__rightOffset + baseIndex);
-            var leftIndex = rightIndex - newBarsLength;
-            this._private__setVisibleBars(new BarsRange(leftIndex, rightIndex));
-        };
-        TimeScale.prototype._private__correctBarSpacing = function () {
-            if (this._private__barSpacing < 0.5 /* MinBarSpacing */) {
-                this._private__barSpacing = 0.5 /* MinBarSpacing */;
-                this._private__visibleBarsInvalidated = true;
-            }
-            if (this._private__width !== 0) {
-                // make sure that this (1 / Constants.MinVisibleBarsCount) >= coeff in max bar spacing (it's 0.5 here)
-                var maxBarSpacing = this._private__width * 0.5;
-                if (this._private__barSpacing > maxBarSpacing) {
-                    this._private__barSpacing = maxBarSpacing;
-                    this._private__visibleBarsInvalidated = true;
-                }
-            }
-        };
-        TimeScale.prototype._private__correctOffset = function () {
-            // block scrolling of to future
-            var maxRightOffset = this._private__maxRightOffset();
-            if (this._private__rightOffset > maxRightOffset) {
-                this._private__rightOffset = maxRightOffset;
-                this._private__visibleBarsInvalidated = true;
-            }
-            // block scrolling of to past
-            var minRightOffset = this._private__minRightOffset();
-            if (minRightOffset !== null && this._private__rightOffset < minRightOffset) {
-                this._private__rightOffset = minRightOffset;
-                this._private__visibleBarsInvalidated = true;
-            }
-        };
-        TimeScale.prototype._private__minRightOffset = function () {
-            var firstIndex = this._private__points.firstIndex();
-            var baseIndex = this._private__baseIndexOrNull;
-            if (firstIndex === null || baseIndex === null) {
-                return null;
-            }
-            if (this._private__leftEdgeIndex !== null) {
-                var barsEstimation = this._private__width / this._private__barSpacing;
-                return this._private__leftEdgeIndex - baseIndex + barsEstimation - 1;
-            }
-            return firstIndex - baseIndex - 1 + Math.min(2 /* MinVisibleBarsCount */, this._private__points.size());
-        };
-        TimeScale.prototype._private__maxRightOffset = function () {
-            return (this._private__width / this._private__barSpacing) - Math.min(2 /* MinVisibleBarsCount */, this._private__points.size());
-        };
-        TimeScale.prototype._private__saveCommonTransitionsStartState = function () {
-            this._private__commonTransitionStartState = {
-                barSpacing: this.barSpacing(),
-                rightOffset: this.rightOffset(),
-            };
-        };
-        TimeScale.prototype._private__clearCommonTransitionsStartState = function () {
-            this._private__commonTransitionStartState = null;
-        };
-        TimeScale.prototype._private__formatLabel = function (time, span) {
-            var _this = this;
-            var formatter = this._private__formattedBySpan.get(span);
-            if (formatter === undefined) {
-                formatter = new FormattedLabelsCache(function (date) {
-                    return _this._private__formatLabelImpl(date, span);
-                });
-                this._private__formattedBySpan.set(span, formatter);
-            }
-            if (time.businessDay === undefined) {
-                return formatter.format(new Date(time.timestamp * 1000));
-            }
-            else {
-                return formatter.format(new Date(Date.UTC(time.businessDay.year, time.businessDay.month - 1, time.businessDay.day)));
-            }
-        };
-        TimeScale.prototype._private__formatLabelImpl = function (d, span) {
-            var formatOptions = {};
-            var timeVisible = this._private__options.timeVisible;
-            if (span < 20 /* Minute */ && timeVisible) {
-                formatOptions.hour12 = false;
-                formatOptions.hour = '2-digit';
-                formatOptions.minute = '2-digit';
-                if (this._private__options.secondsVisible) {
-                    formatOptions.second = '2-digit';
-                }
-            }
-            else if (span < 40 /* Day */ && timeVisible) {
-                formatOptions.hour12 = false;
-                formatOptions.hour = '2-digit';
-                formatOptions.minute = '2-digit';
-            }
-            else if (span < 50 /* Week */) {
-                formatOptions.day = 'numeric';
-            }
-            else if (span < 60 /* Month */) {
-                formatOptions.day = 'numeric';
-            }
-            else if (span < 70 /* Year */) {
-                formatOptions.month = 'short';
-            }
-            else {
-                formatOptions.year = 'numeric';
-            }
-            // from given date we should use only as UTC date or timestamp
-            // but to format as locale date we can convert UTC date to local date
-            var localDateFromUtc = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds());
-            return localDateFromUtc.toLocaleString(this._private__localizationOptions.locale, formatOptions);
-        };
-        TimeScale.prototype._private__setVisibleBars = function (visibleBars) {
-            if (visibleBars === null && this._private__visibleBars === null) {
-                return;
-            }
-            var oldVisibleBars = this._private__visibleBars;
-            this._private__visibleBars = visibleBars;
-            if (this._private__visibleBars === null || oldVisibleBars !== null && !this._private__visibleBars.equals(oldVisibleBars)) {
-                this._private__visibleBarsChanged.fire();
-            }
-            // TODO: reset only coords in case when this._visibleBars has not been changed
-            this._private__resetTimeMarksCache();
-        };
-        TimeScale.prototype._private__resetTimeMarksCache = function () {
-            this._private__timeMarksCache = null;
-        };
-        TimeScale.prototype._private__invalidateTickMarks = function () {
-            this._private__resetTimeMarksCache();
-            this._private__formattedBySpan.clear();
-        };
-        TimeScale.prototype._private__updateDateTimeFormatter = function () {
-            var dateFormat = this._private__localizationOptions.dateFormat;
-            if (this._private__options.timeVisible) {
-                this._private__dateTimeFormatter = new DateTimeFormatter({
-                    dateFormat: dateFormat,
-                    timeFormat: this._private__options.secondsVisible ? '%h:%m:%s' : '%h:%m',
-                    dateTimeSeparator: '   ',
-                    locale: this._private__localizationOptions.locale,
-                });
-            }
-            else {
-                this._private__dateTimeFormatter = new DateFormatter(dateFormat, this._private__localizationOptions.locale);
-            }
-        };
-        TimeScale.prototype._private__fixLeftEdge = function () {
-            if (!this._private__options.fixLeftEdge) {
-                return;
-            }
-            var firstIndex = this._private__points.firstIndex();
-            if (firstIndex === null || this._private__leftEdgeIndex === firstIndex) {
-                return;
-            }
-            this._private__leftEdgeIndex = firstIndex;
-            var delta = ensureNotNull(this.visibleBars()).firstBar() - firstIndex;
-            if (delta < 0) {
-                var leftEdgeOffset = this._private__rightOffset - delta - 1;
-                this.setRightOffset(leftEdgeOffset);
-            }
-        };
-        return TimeScale;
-    }());
-
     var WatermarkRenderer = /** @class */ (function (_super) {
         __extends(WatermarkRenderer, _super);
         function WatermarkRenderer(data) {
@@ -7504,11 +7552,15 @@
         return ChartModel;
     }());
 
-    function bindToDevicePixelRatio(canvas) {
-        return new DevicePixelRatioBinding(canvas);
+    var defaultBindingOptions = {
+        allowDownsampling: true,
+    };
+    function bindToDevicePixelRatio(canvas, options) {
+        if (options === void 0) { options = defaultBindingOptions; }
+        return new DevicePixelRatioBinding(canvas, options);
     }
     var DevicePixelRatioBinding = /** @class */ (function () {
-        function DevicePixelRatioBinding(canvas) {
+        function DevicePixelRatioBinding(canvas, options) {
             var _this = this;
             this._resolutionMediaQueryList = null;
             this._resolutionListener = function (ev) { return _this._onResolutionChanged(); };
@@ -7518,6 +7570,7 @@
                 width: this.canvas.clientWidth,
                 height: this.canvas.clientHeight,
             };
+            this._options = options;
             this._configureCanvas();
             this._installResolutionListener();
         }
@@ -7551,7 +7604,7 @@
                 if (win == null) {
                     throw new Error('No window is associated with the canvas');
                 }
-                return win.devicePixelRatio;
+                return win.devicePixelRatio > 1 || this._options.allowDownsampling ? win.devicePixelRatio : 1;
             },
             enumerable: true,
             configurable: true
@@ -9407,11 +9460,11 @@
         return PriceAxisStub;
     }());
 
-    var Constants$4;
+    var Constants$5;
     (function (Constants) {
         Constants[Constants["BorderSize"] = 1] = "BorderSize";
         Constants[Constants["TickLength"] = 3] = "TickLength";
-    })(Constants$4 || (Constants$4 = {}));
+    })(Constants$5 || (Constants$5 = {}));
     var CursorType$1;
     (function (CursorType) {
         CursorType[CursorType["Default"] = 0] = "Default";
@@ -9833,19 +9886,19 @@
             this._private__tableElement.appendChild(this._private__timeAxisWidget.getElement());
             var width = this._private__options.width;
             var height = this._private__options.height;
-            if (width === 0 && height === 0) {
+            if (width === 0 || height === 0) {
                 var containerRect = container.getBoundingClientRect();
                 // TODO: Fix it better
                 // on Hi-DPI CSS size * Device Pixel Ratio should be integer to avoid smoothing
                 // For chart widget we decreases because we must be inside container.
                 // For time axis this is not important, since it just affects space for pane widgets
-                width = Math.floor(containerRect.width);
-                if (width % 2) {
-                    width -= 1;
+                if (width === 0) {
+                    width = Math.floor(containerRect.width);
+                    width -= width % 2;
                 }
-                height = Math.floor(containerRect.height);
-                if (height % 2) {
-                    height -= 1;
+                if (height === 0) {
+                    height = Math.floor(containerRect.height);
+                    height -= height % 2;
                 }
             }
             width = Math.max(70, width);
@@ -10357,8 +10410,8 @@
     function spanByTime(time, previousTime) {
         // function days(count) { return count * 24 * 60 * 60 * 1000; }
         if (previousTime !== null) {
-            var lastTime = new Date(previousTime.timestamp * 1000);
-            var currentTime = new Date(time.timestamp * 1000);
+            var lastTime = new Date(previousTime * 1000);
+            var currentTime = new Date(time * 1000);
             if (currentTime.getUTCFullYear() !== lastTime.getUTCFullYear()) {
                 return 70;
             }
@@ -10547,15 +10600,24 @@
                 });
             });
             var prevTime = null;
+            var totalTimeDiff = 0;
             var marks = this._private__sortedTimePoints.map(function (time, index) {
-                var span = spanByTime(time, prevTime);
-                prevTime = time;
+                totalTimeDiff += time.timestamp - (prevTime || time.timestamp);
+                var span = spanByTime(time.timestamp, prevTime);
+                prevTime = time.timestamp;
                 return {
                     span: span,
                     time: time,
                     index: index,
                 };
             });
+            if (marks.length > 1) {
+                // let's guess a span for the first mark
+                // let's say the previous point was average time back in the history
+                var averageTimeDiff = Math.ceil(totalTimeDiff / (marks.length - 1));
+                var approxPrevTime = (marks[0].time.timestamp - averageTimeDiff);
+                marks[0].span = spanByTime(marks[0].time.timestamp, approxPrevTime);
+            }
             var timeScaleUpdate = {
                 seriesUpdates: seriesUpdates,
                 changes: this._private__sortedTimePoints.slice(),
@@ -10585,12 +10647,13 @@
             });
         };
         DataLayer.prototype._private__generateMarksSinceIndex = function (startIndex) {
+            var _a;
             var result = [];
-            var prevTime = this._private__timePointsByIndex.get(startIndex - 1) || null;
+            var prevTime = ((_a = this._private__timePointsByIndex.get(startIndex - 1)) === null || _a === void 0 ? void 0 : _a.timestamp) || null;
             for (var index = startIndex; index < this._private__timePointsByIndex.size; ++index) {
                 var time = ensureDefined(this._private__timePointsByIndex.get(index));
-                var span = spanByTime(time, prevTime);
-                prevTime = time;
+                var span = spanByTime(time.timestamp, prevTime);
+                prevTime = time.timestamp;
                 result.push({
                     span: span,
                     time: time,
@@ -10749,6 +10812,39 @@
         },
     };
 
+    function defaultTickMarkFormatter(timePoint, tickMarkType, locale) {
+        var formatOptions = {};
+        switch (tickMarkType) {
+            case 0 /* Year */:
+                formatOptions.year = 'numeric';
+                break;
+            case 1 /* Month */:
+                formatOptions.month = 'short';
+                break;
+            case 2 /* DayOfMonth */:
+                formatOptions.day = 'numeric';
+                break;
+            case 3 /* Time */:
+                formatOptions.hour12 = false;
+                formatOptions.hour = '2-digit';
+                formatOptions.minute = '2-digit';
+                break;
+            case 4 /* TimeWithSeconds */:
+                formatOptions.hour12 = false;
+                formatOptions.hour = '2-digit';
+                formatOptions.minute = '2-digit';
+                formatOptions.second = '2-digit';
+                break;
+        }
+        var date = timePoint.businessDay === undefined
+            ? new Date(timePoint.timestamp * 1000)
+            : new Date(Date.UTC(timePoint.businessDay.year, timePoint.businessDay.month - 1, timePoint.businessDay.day));
+        // from given date we should use only as UTC date or timestamp
+        // but to format as locale date we can convert UTC date to local date
+        var localDateFromUtc = new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds());
+        return localDateFromUtc.toLocaleString(locale, formatOptions);
+    }
+
     var timeScaleOptionsDefaults = {
         rightOffset: 0,
         barSpacing: 6,
@@ -10760,6 +10856,7 @@
         visible: true,
         timeVisible: false,
         secondsVisible: true,
+        tickMarkFormatter: defaultTickMarkFormatter,
     };
 
     var watermarkOptionsDefaults = {
@@ -10877,10 +10974,10 @@
         return PriceScaleApi;
     }());
 
-    var Constants$5;
+    var Constants$6;
     (function (Constants) {
         Constants[Constants["AnimationDurationMs"] = 1000] = "AnimationDurationMs";
-    })(Constants$5 || (Constants$5 = {}));
+    })(Constants$6 || (Constants$6 = {}));
     var TimeScaleApi = /** @class */ (function () {
         function TimeScaleApi(model) {
             this._private__model = model;
@@ -11184,7 +11281,7 @@
 
     /// <reference types="_build-time-constants" />
     function version() {
-        return "2.1.0-dev+202003050952";
+        return "2.1.0-dev+202005021212";
     }
 
     var LightweightChartsModule = /*#__PURE__*/Object.freeze({
@@ -11195,6 +11292,7 @@
         get CrosshairMode () { return CrosshairMode; },
         get PriceScaleMode () { return PriceScaleMode; },
         get PriceLineSource () { return PriceLineSource; },
+        get TickMarkType () { return TickMarkType; },
         isBusinessDay: isBusinessDay,
         isUTCTimestamp: isUTCTimestamp,
         createChart: createChart
