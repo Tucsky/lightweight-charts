@@ -15,10 +15,6 @@
   "module": "dist/lightweight-charts.esm.production.js",
   "main": "index.js",
   "typings": "dist/typings.d.ts",
-  "files": [
-    "dist/**",
-    "index.js"
-  ],
   "keywords": [
     "financial-charting-library",
     "charting-library",
@@ -67,7 +63,7 @@
     "vrsource-tslint-rules": "6.0.0"
   },
   "scripts": {
-    "install-off": "npm run install-hooks && cd tests/e2e && npm i",
+    "install": "npm run install-hooks && cd tests/e2e && npm i",
     "install-hooks": "node scripts/githooks/install.js",
     "clean": "rimraf lib/ dist/",
     "bundle-dts": "tsc --noEmit --allowJs dts-config.js && dts-bundle-generator --config dts-config.js",
