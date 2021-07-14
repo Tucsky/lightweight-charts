@@ -1,6 +1,6 @@
 /*!
  * @license
- * TradingView Lightweight Charts v3.4.0-dev+202106040758
+ * TradingView Lightweight Charts v3.4.0-dev+202107140735
  * Copyright (c) 2020 TradingView, Inc.
  * Licensed under Apache License 2.0 https://www.apache.org/licenses/LICENSE-2.0
  */
@@ -2809,9 +2809,13 @@
             this._private__updateDateTimeFormatter();
         };
         TimeScale.prototype._internal_applyOptions = function (options, localizationOptions) {
+            var _a;
             merge(this._private__options, options);
             if (this._private__options.fixLeftEdge) {
                 this._private__doFixLeftEdge();
+            }
+            if (this._private__options.fixRightEdge) {
+                this._private__doFixRightEdge();
             }
             // note that bar spacing should be applied before right offset
             // because right offset depends on bar spacing
@@ -2820,6 +2824,11 @@
             }
             if (options.rightOffset !== undefined) {
                 this._private__model._internal_setRightOffset(options.rightOffset);
+            }
+            if (options.minBarSpacing !== undefined) {
+                // yes, if we apply min bar spacing then we need to correct bar spacing
+                // the easiest way is to apply it once again
+                this._private__model._internal_setBarSpacing((_a = options.barSpacing) !== null && _a !== void 0 ? _a : this._private__barSpacing);
             }
             this._private__invalidateTickMarks();
             this._private__updateDateTimeFormatter();
@@ -2882,10 +2891,9 @@
             };
         };
         TimeScale.prototype._internal_logicalRangeForTimeRange = function (range) {
-            var timeScale = this._private__model._internal_timeScale();
             return {
-                from: ensureNotNull(timeScale._internal_timeToIndex(range.from, true)),
-                to: ensureNotNull(timeScale._internal_timeToIndex(range.to, true)),
+                from: ensureNotNull(this._internal_timeToIndex(range.from, true)),
+                to: ensureNotNull(this._internal_timeToIndex(range.to, true)),
             };
         };
         TimeScale.prototype._internal_tickMarks = function () {
@@ -2935,7 +2943,7 @@
             }
             var baseIndex = this._internal_baseIndex();
             var deltaFromRight = baseIndex + this._private__rightOffset - index;
-            var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing;
+            var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing - 1;
             return coordinate;
         };
         TimeScale.prototype._internal_indexesToCoordinates = function (points, visibleRange) {
@@ -2945,7 +2953,7 @@
             for (var i = indexFrom; i < indexTo; i++) {
                 var index = points[i]._internal_time;
                 var deltaFromRight = baseIndex + this._private__rightOffset - index;
-                var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing;
+                var coordinate = this._private__width - (deltaFromRight + 0.5) * this._private__barSpacing - 1;
                 points[i]._internal_x = coordinate;
             }
         };
@@ -3185,7 +3193,7 @@
             return this._private__points.length === 0 ? null : (this._private__points.length - 1);
         };
         TimeScale.prototype._private__rightOffsetForCoordinate = function (x) {
-            return (this._private__width + 1 - x) / this._private__barSpacing;
+            return (this._private__width - 1 - x) / this._private__barSpacing;
         };
         TimeScale.prototype._private__coordinateToFloatIndex = function (x) {
             var deltaFromRight = this._private__rightOffsetForCoordinate(x);
@@ -3222,8 +3230,9 @@
             this._private__setVisibleRange(new TimeScaleVisibleRange(logicalRange));
         };
         TimeScale.prototype._private__correctBarSpacing = function () {
-            if (this._private__barSpacing < 0.5 /* MinBarSpacing */) {
-                this._private__barSpacing = 0.5 /* MinBarSpacing */;
+            var minBarSpacing = this._private__minBarSpacing();
+            if (this._private__barSpacing < minBarSpacing) {
+                this._private__barSpacing = minBarSpacing;
                 this._private__visibleRangeInvalidated = true;
             }
             if (this._private__width !== 0) {
@@ -3234,6 +3243,14 @@
                     this._private__visibleRangeInvalidated = true;
                 }
             }
+        };
+        TimeScale.prototype._private__minBarSpacing = function () {
+            // if both options are enabled then limit bar spacing so that zooming-out is not possible
+            // if it would cause either the first or last points to move too far from an edge
+            if (this._private__options.fixLeftEdge && this._private__options.fixRightEdge) {
+                return this._private__width / this._private__points.length;
+            }
+            return this._private__options.minBarSpacing;
         };
         TimeScale.prototype._private__correctOffset = function () {
             // block scrolling of to future
@@ -3261,7 +3278,9 @@
             return firstIndex - baseIndex - 1 + barsEstimation;
         };
         TimeScale.prototype._private__maxRightOffset = function () {
-            return (this._private__width / this._private__barSpacing) - Math.min(2 /* MinVisibleBarsCount */, this._private__points.length);
+            return this._private__options.fixRightEdge
+                ? 0
+                : (this._private__width / this._private__barSpacing) - Math.min(2 /* MinVisibleBarsCount */, this._private__points.length);
         };
         TimeScale.prototype._private__saveCommonTransitionsStartState = function () {
             this._private__commonTransitionStartState = {
@@ -3363,6 +3382,11 @@
                 var leftEdgeOffset = this._private__rightOffset - delta - 1;
                 this._internal_setRightOffset(leftEdgeOffset);
             }
+            this._private__correctBarSpacing();
+        };
+        TimeScale.prototype._private__doFixRightEdge = function () {
+            this._private__correctOffset();
+            this._private__correctBarSpacing();
         };
         return TimeScale;
     }());
@@ -3756,6 +3780,7 @@
         function SeriesPaneViewBase(series, model, extendedVisibleRange) {
             this._internal__invalidated = true;
             this._internal__dataInvalidated = true;
+            this._internal__optionsInvalidated = true;
             this._internal__items = [];
             this._internal__itemsVisibleRange = null;
             this._internal__series = series;
@@ -3767,6 +3792,9 @@
             if (updateType === 'data') {
                 this._internal__dataInvalidated = true;
             }
+            if (updateType === 'options') {
+                this._internal__optionsInvalidated = true;
+            }
         };
         SeriesPaneViewBase.prototype._internal__makeValid = function () {
             if (this._internal__dataInvalidated) {
@@ -3776,6 +3804,10 @@
             if (this._internal__invalidated) {
                 this._internal__updatePoints();
                 this._internal__invalidated = false;
+            }
+            if (this._internal__optionsInvalidated) {
+                this._internal__updateOptions();
+                this._internal__optionsInvalidated = false;
             }
         };
         SeriesPaneViewBase.prototype._internal__clearVisibleRange = function () {
@@ -3822,6 +3854,7 @@
                 _internal_y: NaN,
             };
         };
+        LinePaneViewBase.prototype._internal__updateOptions = function () { };
         LinePaneViewBase.prototype._internal__fillRawPoints = function () {
             var _this = this;
             var colorer = this._internal__series._internal_barColorer();
@@ -4020,6 +4053,12 @@
             this._private__renderer._internal_setData(data);
             return this._private__renderer;
         };
+        SeriesBarsPaneView.prototype._internal__updateOptions = function () {
+            var _this = this;
+            this._internal__items.forEach(function (item) {
+                item._internal_color = _this._internal__series._internal_barColorer()._internal_barStyle(item._internal_time)._internal_barColor;
+            });
+        };
         SeriesBarsPaneView.prototype._internal__createRawItem = function (time, bar, colorer) {
             return __assign(__assign({}, this._internal__createDefaultItem(time, bar, colorer)), { _internal_color: colorer._internal_barStyle(time)._internal_barColor });
         };
@@ -4194,6 +4233,15 @@
             this._private__renderer._internal_setData(data);
             return this._private__renderer;
         };
+        SeriesCandlesticksPaneView.prototype._internal__updateOptions = function () {
+            var _this = this;
+            this._internal__items.forEach(function (item) {
+                var style = _this._internal__series._internal_barColorer()._internal_barStyle(item._internal_time);
+                item._internal_color = style._internal_barColor;
+                item._internal_wickColor = style._internal_barWickColor;
+                item._internal_borderColor = style._internal_barBorderColor;
+            });
+        };
         SeriesCandlesticksPaneView.prototype._internal__createRawItem = function (time, bar, colorer) {
             var style = colorer._internal_barStyle(time);
             return __assign(__assign({}, this._internal__createDefaultItem(time, bar, colorer)), { _internal_color: style._internal_barColor, _internal_wickColor: style._internal_barWickColor, _internal_borderColor: style._internal_barBorderColor });
@@ -4305,6 +4353,7 @@
             timeScale._internal_indexesToCoordinates(this._internal__items, undefinedIfNull(this._internal__itemsVisibleRange));
             priceScale._internal_cloudPointsArrayToCoordinates(this._internal__items, firstValue, undefinedIfNull(this._internal__itemsVisibleRange));
         };
+        CloudAreaPaneViewBase.prototype._internal__updateOptions = function () { };
         CloudAreaPaneViewBase.prototype._internal__createRawItemBase = function (time, higherPrice, lowerPrice) {
             return {
                 _internal_time: time,
@@ -4578,6 +4627,7 @@
             this._private__renderer._internal_setData(this._private__histogramData);
             this._private__compositeRenderer._internal_setRenderers([this._private__renderer]);
         };
+        SeriesHistogramPaneView.prototype._internal__updateOptions = function () { };
         SeriesHistogramPaneView.prototype._internal__clearVisibleRange = function () {
             _super.prototype._internal__clearVisibleRange.call(this);
             this._private__histogramData._internal_visibleRange = null;
@@ -5944,6 +5994,7 @@
             // a series might affect crosshair by some options (like crosshair markers)
             // that's why we need to update crosshair as well
             this._internal_model()._internal_updateCrosshair();
+            this._private__paneView._internal_update('options');
         };
         Series.prototype._internal_clearData = function () {
             this._private__data._internal_clear();
@@ -7119,10 +7170,10 @@
             if (visibleBars !== null && oldFirstTime !== null && newFirstTime !== null) {
                 var isLastSeriesBarVisible = visibleBars._internal_contains(currentBaseIndex);
                 var isLeftBarShiftToLeft = oldFirstTime._internal_timestamp > newFirstTime._internal_timestamp;
-                var isSeriesPointsAdded = newBaseIndex > currentBaseIndex;
+                var isSeriesPointsAdded = newBaseIndex !== null && newBaseIndex > currentBaseIndex;
                 var isSeriesPointsAddedToRight = isSeriesPointsAdded && !isLeftBarShiftToLeft;
                 var needShiftVisibleRangeOnNewBar = isLastSeriesBarVisible && this._private__timeScale._internal_options().shiftVisibleRangeOnNewBar;
-                if (isSeriesPointsAddedToRight && !needShiftVisibleRangeOnNewBar) {
+                if (isSeriesPointsAddedToRight && !needShiftVisibleRangeOnNewBar && newBaseIndex !== null) {
                     var compensationShift = newBaseIndex - currentBaseIndex;
                     this._private__timeScale._internal_setRightOffset(this._private__timeScale._internal_rightOffset() - compensationShift);
                 }
@@ -8748,7 +8799,7 @@
             return this._private__canvasBinding.canvas;
         };
         PaneWidget.prototype._internal_paint = function (type) {
-            if (type === 0) {
+            if (type === 0 /* None */) {
                 return;
             }
             if (this._private__state === null) {
@@ -10256,6 +10307,10 @@
             return firstChangedPointIndex;
         };
         DataLayer.prototype._private__getBaseIndex = function () {
+            if (this._private__seriesRowsBySeries.size === 0) {
+                // if we have no data then 'reset' the base index to null
+                return null;
+            }
             var baseIndex = 0;
             this._private__seriesRowsBySeries.forEach(function (data) {
                 if (data.length !== 0) {
@@ -10287,6 +10342,12 @@
                 this._private__seriesRowsBySeries.forEach(function (data, s) {
                     dataUpdateResponse._internal_series.set(s, { _internal_data: data, _internal_fullUpdate: true });
                 });
+                // if the seires data was set to [] it will have already been removed from _seriesRowBySeries
+                // meaning the forEach above won't add the series to the data update response
+                // so we handle that case here
+                if (!this._private__seriesRowsBySeries.has(series)) {
+                    dataUpdateResponse._internal_series.set(series, { _internal_data: [], _internal_fullUpdate: true });
+                }
                 dataUpdateResponse._internal_timeScale._internal_points = this._private__sortedTimePoints;
             }
             else {
@@ -10412,9 +10473,6 @@
         }
         SeriesApi.prototype.priceFormatter = function () {
             return this._internal__series._internal_formatter();
-        };
-        SeriesApi.prototype._internal_series = function () {
-            return this._internal__series;
         };
         SeriesApi.prototype.priceToCoordinate = function (price) {
             var firstValue = this._internal__series._internal_firstValue();
@@ -10579,7 +10637,9 @@
     var timeScaleOptionsDefaults = {
         rightOffset: 0,
         barSpacing: 6,
+        minBarSpacing: 0.5,
         fixLeftEdge: false,
+        fixRightEdge: false,
         lockVisibleTimeRangeOnResize: false,
         rightBarStaysOnScroll: false,
         borderVisible: true,
@@ -11151,7 +11211,7 @@
 
     /// <reference types="_build-time-constants" />
     function version() {
-        return "3.4.0-dev+202106040758";
+        return "3.4.0-dev+202107140735";
     }
 
     var LightweightChartsModule = /*#__PURE__*/Object.freeze({

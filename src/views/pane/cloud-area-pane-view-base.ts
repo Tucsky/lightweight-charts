@@ -23,6 +23,8 @@ export abstract class CloudAreaPaneViewBase<TSeriesType extends 'CloudArea', Ite
 		priceScale.cloudPointsArrayToCoordinates(this._items, firstValue, undefinedIfNull(this._itemsVisibleRange));
 	}
 
+	protected _updateOptions(): void {}
+
 	protected abstract _createRawItem(time: TimePointIndex, price: BarPrice, price2: BarPrice, colorer: SeriesBarColorer): ItemType;
 
 	protected _createRawItemBase(time: TimePointIndex, higherPrice: BarPrice, lowerPrice: BarPrice): TimedValue & CloudPricedValue {

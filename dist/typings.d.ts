@@ -908,7 +908,9 @@ export interface SeriesPartialOptionsMap {
 export interface TimeScaleOptions {
 	rightOffset: number;
 	barSpacing: number;
+	minBarSpacing: number;
 	fixLeftEdge: boolean;
+	fixRightEdge: boolean;
 	lockVisibleTimeRangeOnResize: boolean;
 	rightBarStaysOnScroll: boolean;
 	borderVisible: boolean;
